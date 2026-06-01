@@ -1,0 +1,17 @@
+command: pretrain
+dataset:
+  dataset_root: zinc-250k
+  subset_ids: [0]
+  use_results: false
+  limit: 1
+  limit_per_shard: 1
+model:
+  hidden_dim: 32
+  message_passing_steps: 2
+training:
+  epochs: 25
+  learning_rate: 0.02
+  aux_weight: 0.1
+outputs:
+  checkpoint: runs/minimal_pretrain.pt
+  metrics: runs/minimal_pretrain_metrics.json

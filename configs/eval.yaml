@@ -1,0 +1,4 @@
+command: eval
+inference:
+  checkpoint: runs/minimal_train.pt
+  output: runs/minimal_eval.json
