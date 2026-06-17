@@ -40,7 +40,7 @@ def test_run_validation_writes_report(tmp_path):
 
     assert (out_dir / "report.json").exists()
     assert (out_dir / "report.md").exists()
-    assert "verdict" in aggregate
+    assert "verdicts" in aggregate
     saved = json.loads((out_dir / "report.json").read_text())
     assert "rows" in saved and "aggregate" in saved
     # one cell per arm at seed 0 -> two backbones written

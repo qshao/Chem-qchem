@@ -97,31 +97,48 @@ def _mean_std(values: list[float]) -> dict:
     return {"mean": mean, "std": std, "n": n}
 
 
-def _verdict(baseline: dict, quantum: dict) -> dict:
-    # Lower MAE is better; the teacher "helps" if baseline_mean - quantum_mean
-    # exceeds the combined seed noise sqrt(std_b^2 + std_q^2).
-    out = {"method": DECISIVE_METHOD, "metric": DECISIVE_METRIC,
+def _verdict(name, reference_arm, treatment_arm, reference: dict, treatment: dict) -> dict:
+    # Lower MAE is better; the treatment "helps" if reference_mean - treatment_mean
+    # exceeds the combined seed noise sqrt(std_ref^2 + std_treat^2).
+    out = {"name": name, "reference": reference_arm, "treatment": treatment_arm,
+           "method": DECISIVE_METHOD, "metric": DECISIVE_METRIC,
            "delta": None, "combined_std": None, "result": "n/a"}
-    if baseline["n"] == 0 or quantum["n"] == 0:
+    if reference["n"] == 0 or treatment["n"] == 0:
         out["result"] = "n/a"
         return out
-    if baseline["std"] is None or quantum["std"] is None:
+    if reference["std"] is None or treatment["std"] is None:
         out["result"] = "insufficient seeds"
         return out
-    delta = baseline["mean"] - quantum["mean"]
-    combined = (baseline["std"] ** 2 + quantum["std"] ** 2) ** 0.5
+    delta = reference["mean"] - treatment["mean"]
+    combined = (reference["std"] ** 2 + treatment["std"] ** 2) ** 0.5
     out["delta"] = delta
     out["combined_std"] = combined
     out["result"] = "helps" if delta > combined else "within noise"
     return out
 
 
-def aggregate_results(extrinsic_rows: list[dict], intrinsic_rows: list[dict]) -> dict:
+_DEFAULT_COMPARISONS = [
+    {"name": "teacher_vs_baseline", "reference": "baseline", "treatment": "quantum"}
+]
+
+
+def aggregate_results(extrinsic_rows: list[dict], intrinsic_rows: list[dict],
+                      arms=None, comparisons=None) -> dict:
+    if arms is None:
+        arms = []
+        for r in extrinsic_rows + intrinsic_rows:
+            if r["arm"] not in arms:
+                arms.append(r["arm"])
+        if not arms:
+            arms = list(ARMS)
+    if comparisons is None:
+        comparisons = _DEFAULT_COMPARISONS
+
     methods = sorted({r["method"] for r in extrinsic_rows})
     extrinsic: dict = {}
     for method in methods:
         extrinsic[method] = {}
-        for arm in ARMS:
+        for arm in arms:
             ok = [r for r in extrinsic_rows
                   if r["method"] == method and r["arm"] == arm and r["status"] == "ok"]
             mae = _mean_std([r["mae"] for r in ok])
@@ -131,20 +148,25 @@ def aggregate_results(extrinsic_rows: list[dict], intrinsic_rows: list[dict]) ->
                 "r2_mean": r2["mean"], "r2_std": r2["std"], "n": mae["n"],
             }
 
-    if DECISIVE_METHOD in extrinsic:
-        decisive = extrinsic[DECISIVE_METHOD]
-        verdict = _verdict(
-            {"mean": decisive["baseline"]["mae_mean"], "std": decisive["baseline"]["mae_std"],
-             "n": decisive["baseline"]["n"]},
-            {"mean": decisive["quantum"]["mae_mean"], "std": decisive["quantum"]["mae_std"],
-             "n": decisive["quantum"]["n"]},
-        )
-    else:
-        verdict = {"method": DECISIVE_METHOD, "metric": DECISIVE_METRIC,
-                   "delta": None, "combined_std": None, "result": "n/a"}
+    decisive = extrinsic.get(DECISIVE_METHOD, {})
+    verdicts: list[dict] = []
+    for comp in comparisons:
+        ref = decisive.get(comp["reference"])
+        treat = decisive.get(comp["treatment"])
+        if ref is None or treat is None:
+            verdicts.append({"name": comp["name"], "reference": comp["reference"],
+                             "treatment": comp["treatment"], "method": DECISIVE_METHOD,
+                             "metric": DECISIVE_METRIC, "delta": None,
+                             "combined_std": None, "result": "n/a"})
+            continue
+        verdicts.append(_verdict(
+            comp["name"], comp["reference"], comp["treatment"],
+            {"mean": ref["mae_mean"], "std": ref["mae_std"], "n": ref["n"]},
+            {"mean": treat["mae_mean"], "std": treat["mae_std"], "n": treat["n"]},
+        ))
 
     intrinsic: dict = {}
-    for arm in ARMS:
+    for arm in arms:
         ok = [r for r in intrinsic_rows if r["arm"] == arm and r["status"] == "ok"]
         intrinsic[arm] = {}
         for prop in INTRINSIC_PROPERTIES:
@@ -152,7 +174,7 @@ def aggregate_results(extrinsic_rows: list[dict], intrinsic_rows: list[dict]) ->
             ms = _mean_std([r["properties"][prop]["mae"] for r in ok if prop in r["properties"]])
             intrinsic[arm][prop] = {"r_mean": rs["mean"], "mae_mean": ms["mean"], "n": rs["n"]}
 
-    return {"extrinsic": extrinsic, "verdict": verdict, "intrinsic": intrinsic}
+    return {"arms": arms, "extrinsic": extrinsic, "verdicts": verdicts, "intrinsic": intrinsic}
 
 
 def _fmt(value) -> str:
@@ -160,22 +182,27 @@ def _fmt(value) -> str:
 
 
 def render_report(aggregate: dict) -> str:
-    lines: list[str] = ["# Quantum-Teacher Validation Report", ""]
+    arms = aggregate["arms"]
+    lines: list[str] = ["# Quantum-Teacher Validation Report", "", "## Verdicts", ""]
 
-    verdict = aggregate["verdict"]
-    lines += ["## Verdict", "",
-              f"- Decisive probe: `{verdict['method']}` {verdict['metric'].upper()}",
-              f"- delta (baseline - quantum): {_fmt(verdict['delta'])}",
-              f"- combined seed std: {_fmt(verdict['combined_std'])}",
-              f"- **Result: {verdict['result']}**",
-              "", "_Heuristic, not a significance test: 'helps' iff delta > combined std._", ""]
+    for v in aggregate["verdicts"]:
+        lines += [
+            f"### {v['name']} ({v['reference']} vs {v['treatment']})",
+            "",
+            f"- Decisive probe: `{v['method']}` {v['metric'].upper()}",
+            f"- delta ({v['reference']} - {v['treatment']}): {_fmt(v['delta'])}",
+            f"- combined seed std: {_fmt(v['combined_std'])}",
+            f"- **Result: {v['result']}**",
+            "",
+        ]
+    lines += ["_Heuristic, not a significance test: 'helps' iff delta > combined std._", ""]
 
     lines += ["## Extrinsic (ESOL transfer)", "",
               "| Method | Arm | MAE (mean) | MAE (std) | R2 (mean) | n |",
               "|---|---|---|---|---|---|"]
-    for method, arms in aggregate["extrinsic"].items():
-        for arm in ARMS:
-            s = arms[arm]
+    for method, arm_map in aggregate["extrinsic"].items():
+        for arm in arms:
+            s = arm_map[arm]
             lines.append(
                 f"| {method} | {arm} | {_fmt(s['mae_mean'])} | {_fmt(s['mae_std'])} "
                 f"| {_fmt(s['r2_mean'])} | {s['n']} |"
@@ -185,7 +212,7 @@ def render_report(aggregate: dict) -> str:
     lines += ["## Intrinsic (teacher on held-out conformers)", "",
               "| Property | Arm | r (mean) | MAE (mean) | n |",
               "|---|---|---|---|---|"]
-    for arm in ARMS:
+    for arm in arms:
         for prop in INTRINSIC_PROPERTIES:
             s = aggregate["intrinsic"][arm][prop]
             lines.append(
@@ -349,7 +376,7 @@ def run_validation(cfg: dict, dataset=None, overwrite=False) -> dict:
     out_dir = Path(cfg["outputs"]["dir"])
     extrinsic_rows: list[dict] = []
     intrinsic_rows: list[dict] = []
-    for arm_name in ARMS:
+    for arm_name in cfg["arms"]:
         arm_overrides = cfg["arms"][arm_name]
         for seed in cfg["seeds"]:
             cell = run_one_cell(
@@ -359,7 +386,11 @@ def run_validation(cfg: dict, dataset=None, overwrite=False) -> dict:
             extrinsic_rows.extend(cell["extrinsic"])
             intrinsic_rows.append(cell["intrinsic"])
 
-    aggregate = aggregate_results(extrinsic_rows, intrinsic_rows)
+    aggregate = aggregate_results(
+        extrinsic_rows, intrinsic_rows,
+        arms=list(cfg["arms"].keys()),
+        comparisons=cfg.get("comparisons"),
+    )
 
     report_base = Path(cfg["outputs"]["report"])
     report_base.parent.mkdir(parents=True, exist_ok=True)
