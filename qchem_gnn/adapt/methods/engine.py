@@ -23,8 +23,13 @@ class EngineAdapterHead(nn.Module):
         ])
         self.alphas = nn.ParameterList([nn.Parameter(torch.zeros(1)) for _ in range(num_layers)])
         self.exit_heads = nn.ModuleList([nn.Linear(hidden_dim, output_dim) for _ in range(num_layers)])
+        self.num_steps = num_layers
         self.num_layers = num_layers
+        self.hidden_dim = hidden_dim
         self.output_dim = output_dim
+
+    def config(self) -> dict:
+        return {"num_steps": self.num_steps, "hidden_dim": self.hidden_dim, "output_dim": self.output_dim}
 
     def forward(self, layer_tensors):
         h = torch.zeros_like(layer_tensors[0])
@@ -38,7 +43,10 @@ class EngineAdapterHead(nn.Module):
     @torch.no_grad()
     def predict_ensemble(self, layer_tensors):
         preds = self.forward(layer_tensors)
-        return torch.stack(preds, dim=0).mean(0).cpu().numpy()
+        weights = torch.stack([torch.sigmoid(a) for a in self.alphas])  # [S]
+        stacked = torch.stack(preds, dim=0)  # [S, B, T]
+        weighted = (stacked * weights.view(-1, 1, 1)).sum(0)  # [B, T]
+        return (weighted / weights.sum()).cpu().detach().numpy()
 
     @torch.no_grad()
     def predict_early_exit(self, layer_tensors, tolerance=0.05, min_layers=1):
@@ -81,13 +89,9 @@ class EngineMethod:
         layer_embs = embed_per_layer(data.graphs, backbone)
         norm = LabelNormalizer.fit(y[train_idx])
 
-        scalers, tr, va, te = [], [], [], []
-        for emb in layer_embs:
-            mu = emb[train_idx].mean(0); sig = emb[train_idx].std(0).clip(1e-8)
-            scalers.append((mu, sig))
-            tr.append(torch.as_tensor((emb[train_idx] - mu) / sig, dtype=torch.float32))
-            va.append(torch.as_tensor((emb[val_idx] - mu) / sig, dtype=torch.float32) if val_idx else None)
-            te.append(torch.as_tensor((emb[test_idx] - mu) / sig, dtype=torch.float32) if test_idx else None)
+        tr = [torch.as_tensor(emb[train_idx], dtype=torch.float32) for emb in layer_embs]
+        va = [torch.as_tensor(emb[val_idx], dtype=torch.float32) for emb in layer_embs] if val_idx else None
+        te = [torch.as_tensor(emb[test_idx], dtype=torch.float32) for emb in layer_embs] if test_idx else None
         ytr = torch.as_tensor(norm.transform(y[train_idx]), dtype=torch.float32)
 
         adapter = EngineAdapterHead(h_dim, n_steps, output_dim=T)
@@ -102,7 +106,7 @@ class EngineMethod:
         for _ in range(epochs):
             adapter.train()
             opt.zero_grad()
-            loss = sum(crit(p, ytr) for p in adapter(tr))
+            loss = sum(torch.sigmoid(alpha_i) * crit(p, ytr) for alpha_i, p in zip(adapter.alphas, adapter(tr)))
             loss.backward(); opt.step(); sched.step()
             if val_idx:
                 adapter.eval()
@@ -122,7 +126,6 @@ class EngineMethod:
             "adapter_type": "engine",
             "adapter_state": adapter.state_dict(),
             "hidden_dim": h_dim, "num_layers": n_steps, "output_dim": T,
-            "layer_scalers": [(mu.tolist(), sig.tolist()) for mu, sig in scalers],
             "label_norm": norm.to_dict(),
         }
         return TrainResult(payload=payload, test_metrics=test_metrics,
@@ -148,9 +151,7 @@ class EngineMethod:
         norm = LabelNormalizer.from_dict(s["label_norm"])
         graphs, valid_idx = build_graphs(smiles)
         layer_embs = embed_per_layer(graphs, model, batch_size=kw.get("batch_size", 256))
-        scalers = [(np.array(mu), np.array(sig)) for mu, sig in s["layer_scalers"]]
-        tensors = [torch.as_tensor((emb - mu) / sig, dtype=torch.float32)
-                   for emb, (mu, sig) in zip(layer_embs, scalers)]
+        tensors = [torch.as_tensor(emb, dtype=torch.float32) for emb in layer_embs]
         mode = kw.get("mode", "ensemble")
         if mode == "early_exit":
             tol = kw.get("exit_tolerance", 0.05) / float(np.mean(norm.sigma))
