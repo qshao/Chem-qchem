@@ -102,6 +102,26 @@ def resolve_adapt_config(raw: dict, overrides: dict | None = None) -> AdaptConfi
                        training=training, split=split, outputs=outputs, sweep=sweep)
 
 
+def to_raw_dict(cfg: AdaptConfig) -> dict:
+    """Round-trip an AdaptConfig back to a raw mapping for re-resolving with overrides."""
+    training = deepcopy(cfg.training)
+    # Strip finetune-only keys for non-finetune methods so re-validation passes
+    if cfg.method != "finetune":
+        for k in FINETUNE_ONLY_TRAINING:
+            training.pop(k, None)
+    raw = {
+        "command": "adapt", "method": cfg.method, "backbone": cfg.backbone, "task": cfg.task,
+        "dataset": {"csv": cfg.csv, "targets": cfg.targets},
+        "adapter": deepcopy(cfg.adapter), "training": training,
+        "split": deepcopy(cfg.split), "outputs": deepcopy(cfg.outputs),
+    }
+    if cfg.smiles_col is not None:
+        raw["dataset"]["smiles_col"] = cfg.smiles_col
+    if cfg.sweep is not None:
+        raw["sweep"] = deepcopy(cfg.sweep)
+    return raw
+
+
 def _validate_sweep(sweep: dict) -> None:
     if not isinstance(sweep, dict) or "grid" not in sweep:
         raise AdaptConfigError("sweep must be a mapping with a 'grid' key")
