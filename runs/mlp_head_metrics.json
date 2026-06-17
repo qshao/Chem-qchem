@@ -1,0 +1,26 @@
+{
+  "method": "mlp_head",
+  "test_metrics": {
+    "per_target": [
+      {
+        "mae": 1.221793775446713,
+        "rmse": 1.5839223506995042,
+        "r2": 0.39651474851166957
+      }
+    ],
+    "mae": 1.221793775446713,
+    "rmse": 1.5839223506995042,
+    "r2": 0.39651474851166957
+  },
+  "split": {
+    "n_train": 678,
+    "n_val": 226,
+    "n_test": 224
+  },
+  "log": {
+    "best_val_score": 1.1108
+  },
+  "target_names": [
+    "measured log solubility in mols per litre"
+  ]
+}

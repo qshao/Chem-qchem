@@ -1,0 +1,26 @@
+{
+  "method": "finetune",
+  "test_metrics": {
+    "per_target": [
+      {
+        "mae": 0.857232626095148,
+        "rmse": 1.1516312038075487,
+        "r2": 0.6809742532066151
+      }
+    ],
+    "mae": 0.857232626095148,
+    "rmse": 1.1516312038075487,
+    "r2": 0.6809742532066151
+  },
+  "split": {
+    "n_train": 678,
+    "n_val": 226,
+    "n_test": 224
+  },
+  "log": {
+    "best_val_score": 0.8365
+  },
+  "target_names": [
+    "measured log solubility in mols per litre"
+  ]
+}
