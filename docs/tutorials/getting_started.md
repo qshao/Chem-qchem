@@ -325,15 +325,18 @@ Example output:
 
 ```
 Adapter type : MLP head (frozen backbone)
+Trained on   : delaney-processed.csv  (678 train / 224 test)
+Target       : measured log solubility in mols per litre
+Best val MAE : ?  Test MAE: ?  R²: ?
 
 Scoring 4 molecule(s) …
 
-  SMILES                                    prediction
-  --------------------------------------------------
-  CCO                                           -0.872
-  c1ccccc1                                      +0.434
-  CC(=O)O                                       -0.524
-  CN1C=NC2=C1C(=O)N(C(=O)N2C)C                 -0.791
+  SMILES                          measured log solubility in mols per litre
+  ---------------------------------------------------------------------------
+  CCO                             +0.673
+  c1ccccc1                        -1.797
+  CC(=O)O                         -0.829
+  CN1C=NC2=C1C(=O)N(C(=O)N2C)C    -1.044
 ```
 
 ### Predict from a CSV
