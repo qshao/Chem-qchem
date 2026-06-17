@@ -14,12 +14,13 @@ class ConfigError(ValueError):
     pass
 
 
-VALID_COMMANDS = {"train", "pretrain", "export-embeddings", "eval", "downstream"}
+VALID_COMMANDS = {"train", "pretrain", "contrastive-pretrain", "export-embeddings", "eval", "downstream"}
 VALID_TOP_LEVEL_KEYS = {
     "command",
     "dataset",
     "model",
     "training",
+    "contrastive",
     "outputs",
     "inference",
     "downstream",
@@ -29,6 +30,18 @@ VALID_SECTION_KEYS = {
     "dataset": {"csv", "dataset_root", "subset_ids", "geometry", "results", "use_results", "limit", "limit_per_shard"},
     "model": {"hidden_dim", "message_passing_steps"},
     "training": {"epochs", "learning_rate", "aux_weight", "resume_from"},
+    "contrastive": {
+        "batch_size",
+        "supervised_weight",
+        "contrastive_weight",
+        "temperature",
+        "hidden_dim_3d",
+        "num_rbf",
+        "cutoff",
+        "message_passing_steps_3d",
+        "conformer_pool_mode",
+        "seed",
+    },
     "outputs": {"checkpoint", "metrics", "embeddings"},
     "inference": {"checkpoint", "output"},
     "downstream": {"kind", "epochs", "learning_rate", "fractions", "seed"},
@@ -57,6 +70,18 @@ DEFAULT_CONFIG: ConfigDict = {
         "learning_rate": 0.02,
         "aux_weight": 0.1,
         "resume_from": None,
+    },
+    "contrastive": {
+        "batch_size": 8,
+        "supervised_weight": 1.0,
+        "contrastive_weight": 1.0,
+        "temperature": 0.1,
+        "hidden_dim_3d": 32,
+        "num_rbf": 16,
+        "cutoff": 5.0,
+        "message_passing_steps_3d": 2,
+        "conformer_pool_mode": "mean",
+        "seed": 0,
     },
     "outputs": {
         "checkpoint": None,
@@ -133,7 +158,7 @@ def _validate_config(config: ConfigDict) -> None:
     if command not in VALID_COMMANDS:
         raise ConfigError(f"command must be one of {sorted(VALID_COMMANDS)}")
 
-    for section_name in ("dataset", "model", "training", "outputs", "inference", "downstream"):
+    for section_name in ("dataset", "model", "training", "contrastive", "outputs", "inference", "downstream"):
         section = config.get(section_name)
         if not isinstance(section, dict):
             raise ConfigError(f"{section_name} section must be a mapping")
@@ -144,6 +169,7 @@ def _validate_config(config: ConfigDict) -> None:
     dataset = config["dataset"]
     model = config["model"]
     training = config["training"]
+    contrastive = config["contrastive"]
     outputs = config["outputs"]
     inference = config["inference"]
     downstream = config["downstream"]
@@ -174,6 +200,23 @@ def _validate_config(config: ConfigDict) -> None:
     downstream["epochs"] = _ensure_positive_int(downstream["epochs"], "downstream.epochs")
     downstream["learning_rate"] = _ensure_positive_float(downstream["learning_rate"], "downstream.learning_rate")
     downstream["seed"] = _coerce_int(downstream["seed"], "downstream.seed")
+    contrastive["batch_size"] = _ensure_positive_int(contrastive["batch_size"], "contrastive.batch_size")
+    contrastive["hidden_dim_3d"] = _ensure_positive_int(contrastive["hidden_dim_3d"], "contrastive.hidden_dim_3d")
+    contrastive["num_rbf"] = _ensure_positive_int(contrastive["num_rbf"], "contrastive.num_rbf")
+    contrastive["message_passing_steps_3d"] = _ensure_positive_int(
+        contrastive["message_passing_steps_3d"], "contrastive.message_passing_steps_3d"
+    )
+    contrastive["seed"] = _coerce_int(contrastive["seed"], "contrastive.seed")
+    contrastive["cutoff"] = _ensure_positive_float(contrastive["cutoff"], "contrastive.cutoff")
+    contrastive["temperature"] = _ensure_positive_float(contrastive["temperature"], "contrastive.temperature")
+    contrastive["supervised_weight"] = _ensure_non_negative_float(
+        contrastive["supervised_weight"], "contrastive.supervised_weight"
+    )
+    contrastive["contrastive_weight"] = _ensure_non_negative_float(
+        contrastive["contrastive_weight"], "contrastive.contrastive_weight"
+    )
+    if contrastive["conformer_pool_mode"] not in {"mean", "weighted", "energy"}:
+        raise ConfigError("contrastive.conformer_pool_mode must be one of mean, weighted, energy")
 
     subset_ids = _ensure_sequence(dataset["subset_ids"], "dataset.subset_ids")
     dataset["subset_ids"] = [_coerce_int(value, "dataset.subset_ids[]") for value in subset_ids]
@@ -190,7 +233,7 @@ def _validate_config(config: ConfigDict) -> None:
     dataset = config["dataset"]
     has_csv = bool(dataset.get("csv"))
     has_dataset_root = bool(dataset.get("dataset_root"))
-    if command in {"train", "pretrain"}:
+    if command in {"train", "pretrain", "contrastive-pretrain"}:
         if has_csv == has_dataset_root:
             raise ConfigError("training configs require exactly one of dataset.csv or dataset.dataset_root")
         if has_dataset_root and not dataset.get("subset_ids"):
@@ -202,7 +245,7 @@ def _validate_config(config: ConfigDict) -> None:
 
     outputs = config["outputs"]
     inference = config["inference"]
-    if command in {"train", "pretrain"} and not outputs.get("checkpoint"):
+    if command in {"train", "pretrain", "contrastive-pretrain"} and not outputs.get("checkpoint"):
         raise ConfigError("outputs.checkpoint is required for training commands")
     if command == "export-embeddings":
         if not inference.get("checkpoint"):
@@ -302,7 +345,7 @@ def config_to_namespace(config: ConfigDict) -> Namespace:
     inference = config["inference"]
     downstream = config["downstream"]
 
-    if command in {"train", "pretrain"}:
+    if command in {"train", "pretrain", "contrastive-pretrain"}:
         values: ConfigDict = {
             "command": command,
             "csv": dataset["csv"],
@@ -321,6 +364,22 @@ def config_to_namespace(config: ConfigDict) -> Namespace:
             "output": outputs["checkpoint"],
             "resume_from": training["resume_from"],
         }
+        if command == "contrastive-pretrain":
+            contrastive = config["contrastive"]
+            values.update(
+                {
+                    "batch_size": _coerce_int(contrastive["batch_size"], "contrastive.batch_size"),
+                    "supervised_weight": _coerce_float(contrastive["supervised_weight"], "contrastive.supervised_weight"),
+                    "contrastive_weight": _coerce_float(contrastive["contrastive_weight"], "contrastive.contrastive_weight"),
+                    "temperature": _coerce_float(contrastive["temperature"], "contrastive.temperature"),
+                    "hidden_dim_3d": _coerce_int(contrastive["hidden_dim_3d"], "contrastive.hidden_dim_3d"),
+                    "num_rbf": _coerce_int(contrastive["num_rbf"], "contrastive.num_rbf"),
+                    "cutoff": _coerce_float(contrastive["cutoff"], "contrastive.cutoff"),
+                    "message_passing_steps_3d": _coerce_int(contrastive["message_passing_steps_3d"], "contrastive.message_passing_steps_3d"),
+                    "conformer_pool_mode": contrastive["conformer_pool_mode"],
+                    "seed": _coerce_int(contrastive["seed"], "contrastive.seed"),
+                }
+            )
         if command == "pretrain":
             values["aux_weight"] = _coerce_float(training["aux_weight"], "training.aux_weight")
         return Namespace(**values)

@@ -529,3 +529,23 @@ def test_example_configs_load_from_configs_directory(filename: str):
 
     assert config_path.exists()
     assert resolved["command"] in {"train", "pretrain", "export-embeddings", "eval"}
+
+
+def test_contrastive_pretrain_config_resolves():
+    config = {
+        "command": "contrastive-pretrain",
+        "dataset": {"csv": "subset_000.csv", "geometry": "coords_000.pkl", "limit": 4},
+        "model": {"hidden_dim": 16, "message_passing_steps": 2},
+        "training": {"epochs": 50, "learning_rate": 0.01},
+        "contrastive": {"batch_size": 4, "contrastive_weight": 1.0, "temperature": 0.1, "hidden_dim_3d": 16},
+        "outputs": {"checkpoint": "runs/contrastive.pt"},
+    }
+
+    resolved = resolve_config(config)
+    namespace = config_to_namespace(resolved)
+
+    assert namespace.command == "contrastive-pretrain"
+    assert namespace.batch_size == 4
+    assert namespace.temperature == 0.1
+    assert namespace.hidden_dim_3d == 16
+    assert namespace.output == "runs/contrastive.pt"
