@@ -140,7 +140,7 @@ so every partition covers the full range of log S):
 ### Command
 
 ```bash
-qchem adapt configs/adapt_engine_solubility.yaml
+python -m qchem_gnn.cli adapt configs/adapt_engine_solubility.yaml
 ```
 
 The config sets `test_frac: 0.2` and `val_frac: 0.25`, meaning 25 % of the
@@ -161,18 +161,17 @@ Extracting per-layer embeddings from frozen backbone …
 Training ENGINE adapter  (10 epochs) …
    Epoch   train_loss   val_MAE
   --------------------------------
-      10       2.0604    1.4023
+      10       2.0604    1.6153
 
 ─────────────────────────────────────────────────────────────
   Test results                            MAE    RMSE      R²
   ───────────────────────────────────────────────────────────
-  ENGINE ensemble                       1.434   1.802   0.219
-  ENGINE early exit (tol=0.1)           1.443   1.818   0.205  [2.4/3 avg, 61% early]
+  ENGINE ensemble                       1.615   2.004   0.034
 ─────────────────────────────────────────────────────────────
 
-  α gates: σ(α_0)=0.50, σ(α_1)=0.50, σ(α_2)=0.50
+  α gates: σ(α_0)=0.499, σ(α_1)=0.499, σ(α_2)=0.499
 
-  Adapter saved → runs/solubility_adapter_tutorial.pt
+  Adapter saved → runs/engine_solubility.pt
 ```
 
 ### Reading the output
@@ -184,19 +183,20 @@ pass and reused for all 10 training epochs — making training very fast.
 **Training loss** (2.06 at epoch 10) is the sum of MSE across all three exit
 heads in normalised label space. It will keep falling with more epochs.
 
-**Test MAE of 1.434 log(mol/L)** means predictions are off by about 1.4 units
+**Test MAE of 1.615 log(mol/L)** means predictions are off by about 1.6 units
 on average. For context, the standard deviation of the dataset is 2.1, so the
-model is already predicting better than always guessing the mean (which would
-give MAE ≈ 1.68). With 400 epochs this drops to 0.849 (see below).
+model is beginning to outperform a naive mean-baseline (MAE ≈ 1.68). With 400
+epochs this drops to 1.048 (see below).
 
-**α gates all at 0.50** — `σ(α_i)` initialises to 0.5 (since α = 0 at init).
-After only 10 epochs the gates have not moved. Given more training, they diverge
-to reflect each layer's usefulness for solubility prediction.
+**α gates all near 0.50** — `σ(α_i)` initialises to 0.5 (since α = 0 at init).
+After only 10 epochs the gates have barely moved (0.499). Given more training,
+they diverge to reflect each layer's usefulness for solubility prediction.
 
-**Early exit**: 61 % of molecules exited before the final layer (average exit
-at layer 2.4/3). The adapter was not fully trained, so the threshold is hit
-early not because predictions converged but because early-layer variance is
-already below 0.1 normalised units.
+**Early exit** mode stops each molecule at the first layer whose exit-head
+predictions fall within a variance tolerance, reducing compute. At 10 epochs
+the gates have not yet differentiated, so early exit offers limited benefit;
+with 400 epochs the per-layer predictions align more closely and genuine early
+exits become more frequent.
 
 ---
 
@@ -205,34 +205,31 @@ already below 0.1 normalised units.
 ```bash
 python scripts/predict_property.py \
     --adapter runs/engine_solubility.pt \
-    "CCO" "c1ccccc1" "CC(=O)O" "CCCCCCCCC" "OC(=O)c1ccccc1" \
-    "CC(C)(C)c1ccc2occ(CC(=O)Nc3ccccc3F)c2c1" "O=C(O)CCC(=O)O"
+    "CCO" "c1ccccc1" "CC(=O)O" "CN1C=NC2=C1C(=O)N(C(=O)N2C)C" \
+    --mode ensemble
 ```
 
-Output:
+Output (400-epoch adapter):
 ```
-Adapter trained on: delaney-processed.csv  (678 train / 224 test)
-  Best val MAE: 1.4023  |  Test MAE ensemble: 1.4337
+Adapter type : ENGINE side adapter (ensemble)
+Trained on   : delaney-processed.csv  (678 train / 224 test)
+Target       : measured log solubility in mols per litre
 
-Predicting log(S) for 7 molecule(s) [mode: ensemble] …
+Scoring 4 molecule(s) …
 
-  SMILES                                         log(S) [mol/L]
-  ------------------------------------------------------------
-  CCO                                            -1.244
-  c1ccccc1                                       -3.687
-  CC(=O)O                                        -1.489
-  CCCCCCCCC                                      -2.286
-  OC(=O)c1ccccc1                                 -3.536
-  CC(C)(C)c1ccc2occ(CC(=O)Nc3ccccc3F)c2c1        -3.531
-  O=C(O)CCC(=O)O                                 -1.827
+  SMILES                          measured log solubility in mols per litre
+  ---------------------------------------------------------------------------
+  CCO                             +0.882
+  c1ccccc1                        -2.783
+  CC(=O)O                         +1.010
+  CN1C=NC2=C1C(=O)N(C(=O)N2C)C    -1.553
 ```
 
-Qualitative check: ethanol (`CCO`, −1.2) and acetic acid (`CC(=O)O`, −1.5) are
-predicted more soluble than benzene (`c1ccccc1`, −3.7), which is correct.
-Nonane (`CCCCCCCCC`, −2.3) is predicted less soluble than the polar acids,
-also correct in direction, though the magnitude is imprecise after only 10
-epochs. The large drug-like compound (`CC(C)(C)c1ccc2…`, −3.5) is predicted
-as poorly soluble, which is also chemically reasonable.
+Qualitative check: ethanol (`CCO`, +0.88) and acetic acid (`CC(=O)O`, +1.01)
+are predicted as water-soluble (positive log S), while benzene (`c1ccccc1`,
+−2.78) is predicted as sparingly soluble — both directionally correct.
+Caffeine (`CN1C=NC2=C1C(=O)N(C(=O)N2C)C`, −1.55) is predicted moderately
+soluble, also chemically reasonable.
 
 To score a CSV file and save results:
 ```bash
@@ -251,56 +248,49 @@ All runs use the same 60/20/20 split (678 train / 226 val / 224 test) and seed.
 Embeddings are extracted once from the frozen backbone and reused across all
 epoch counts.
 
-| Epochs | val MAE | Test MAE | Test RMSE | Test R² | EE MAE | EE R² | % early exit |
-|--------|---------|----------|-----------|---------|--------|-------|--------------|
-|     10 |   1.425 |    1.450 |     1.814 |   0.209 |  1.490 | 0.169 |        30.4% |
-|     50 |   1.173 |    1.208 |     1.566 |   0.410 |  1.227 | 0.398 |        31.7% |
-|    100 |   1.062 |    1.037 |     1.376 |   0.544 |  1.050 | 0.553 |        25.9% |
-|    200 |   0.905 |    0.893 |     1.207 |   0.650 |  0.904 | 0.652 |        18.8% |
-|    400 |   0.823 |    0.836 |     1.162 |   0.675 |  0.836 | 0.686 |        29.0% |
+| Epochs | Test MAE | Test RMSE | Test R² |
+|--------|----------|-----------|---------|
+|     10 |   1.6153 |    2.0042 |  0.0337 |
+|     50 |   1.5298 |    1.9036 |  0.1283 |
+|    100 |   1.4011 |    1.7626 |  0.2527 |
+|    200 |   1.3018 |    1.6574 |  0.3392 |
+|    400 |   1.0477 |    1.3817 |  0.5408 |
 
-MAE and RMSE in log(mol/L). EE = early exit with tolerance 0.1 (normalised units).
+MAE and RMSE in log(mol/L). All runs use the same 678 train / 226 val / 224 test split, seed 42.
 
 ### What the numbers tell us
 
-**R² doubles from 10 to 100 epochs** (0.21 → 0.54), the fastest gains coming
-in the first 100 epochs as the projection layers learn to extract
+**R² rises steeply from 10 to 400 epochs** (0.034 → 0.541), with meaningful
+gains at every doubling. The projection layers steadily learn to extract
 solubility-relevant features from the frozen backbone.
 
-**Returns diminish after 200 epochs** (R² 0.650 → 0.675 from 200→400). The
-adapters are well-fit by 200 epochs; pushing further gives marginal improvement
-for this backbone.
+**Largest single gain is from 200 to 400 epochs** (R² 0.339 → 0.541), showing
+the backbone still has extractable signal well past 200 epochs.
 
-**Early exit MAE tracks ensemble MAE closely** at every epoch count —
-sometimes better, sometimes slightly worse. The two modes converge as training
-progresses, confirming that the per-layer predictions become consistent.
-
-**% early exit is non-monotone** (30 % → 32 % → 26 % → 19 % → 29 %).
-At low epochs predictions are individually uncertain but happen to agree by
-chance (false convergence). As training progresses, the model becomes more
-confident and genuine early exits rise again at 400 epochs.
+**MAE drops from 1.615 to 1.048** across the full sweep — a 35 % reduction
+just from longer training with no architectural changes.
 
 ### α gate evolution
 
 | Epochs | σ(α_0) | σ(α_1) | σ(α_2) | Interpretation |
 |--------|--------|--------|--------|----------------|
-|     10 |   0.50 |   0.50 |   0.50 | not yet differentiated (near init) |
-|     50 |   0.50 |   0.50 |   0.49 | barely moved |
-|    100 |   0.51 |   0.50 |   0.48 | layer 2 starting to downweight |
-|    200 |   0.54 |   0.50 |   0.46 | layer 0 rising, layer 2 falling |
-|    400 |   0.59 |   0.48 |   0.43 | clear gradient: layer 0 dominates |
+|     10 |  0.499 |  0.499 |  0.499 | not yet differentiated (near init) |
+|     50 |  0.494 |  0.494 |  0.494 | very slight uniform drift downward |
+|    100 |  0.488 |  0.488 |  0.488 | all gates moving together |
+|    200 |  0.477 |  0.477 |  0.477 | continued uniform suppression |
+|    400 |  0.457 |  0.458 |  0.457 | gates near-symmetric, slightly below 0.5 |
 
-The converged pattern (`σ(α_0)=0.59, σ(α_1)=0.48, σ(α_2)=0.43`) tells a
-story: the **first message-passing layer** carries the most weight in the
-side stream. This makes sense — after one step each atom has seen its
-immediate neighbours, which is already enough to encode local chemical
-environment relevant to solubility (polarity, hydrogen-bond donors/acceptors).
-Deeper layers add longer-range structure with diminishing marginal returns for
-this task.
+The converged pattern (`σ(α_0)=0.457, σ(α_1)=0.458, σ(α_2)=0.457`) shows
+all three layers contributing nearly equally to the side stream, with all
+gates drifting just below 0.5. This is consistent with the backbone being
+pretrained on only 32 molecules — the representations in each layer are
+similarly coarse, so no single layer provides a clearly stronger signal for
+solubility. A backbone pretrained on richer data would show more
+differentiated gate values.
 
 To reproduce the full sweep:
 ```bash
-qchem adapt configs/adapt_engine_epoch_sweep.yaml
+python -m qchem_gnn.cli adapt configs/adapt_engine_epoch_sweep.yaml
 # writes runs/engine_epoch_sweep.csv and prints the comparison table
 ```
 
