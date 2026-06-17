@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
+import math
 import statistics
+from pathlib import Path
 
 import torch
 
+from .adapt import resolve_adapt_config
+from .adapt import run as adapt_run
 from .conformer import ConformerEncoderBatch
+from .contrastive_pretrain import contrastive_pretrain_on_dataset
 from .minimal import MinimalQuantumDataset
 from .teacher_heads import assemble_conformer_targets
 
@@ -185,3 +191,133 @@ def render_report(aggregate: dict) -> str:
             )
     lines.append("")
     return "\n".join(lines)
+
+
+def _save_backbone(path: Path, pretrain_ds, result, pretrain_cfg) -> None:
+    node_targets = int(pretrain_ds.examples[0].node_target.shape[-1])
+    model_config = {
+        "atom_vocab_size": 128,
+        "bond_vocab_size": 8,
+        "hidden_dim": pretrain_cfg["hidden_dim"],
+        "num_message_passing_steps": pretrain_cfg["message_passing_steps"],
+        "node_targets": node_targets,
+        "graph_targets": 2,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {"model_config": model_config, "model_state_dict": result.model.state_dict()},
+        path,
+    )
+
+
+def _pretrain_kwargs(pretrain_cfg: dict, arm_overrides: dict, seed: int) -> dict:
+    kwargs = dict(
+        hidden_dim=pretrain_cfg["hidden_dim"],
+        num_message_passing_steps=pretrain_cfg["message_passing_steps"],
+        hidden_dim_3d=pretrain_cfg.get("hidden_dim_3d", pretrain_cfg["hidden_dim"]),
+        num_rbf=pretrain_cfg.get("num_rbf", 16),
+        cutoff=pretrain_cfg.get("cutoff", 5.0),
+        num_message_passing_steps_3d=pretrain_cfg.get(
+            "message_passing_steps_3d", pretrain_cfg["message_passing_steps"]
+        ),
+        epochs=pretrain_cfg["epochs"],
+        batch_size=pretrain_cfg.get("batch_size", 16),
+        learning_rate=pretrain_cfg["learning_rate"],
+        supervised_weight=pretrain_cfg.get("supervised_weight", 1.0),
+        contrastive_weight=pretrain_cfg.get("contrastive_weight", 1.0),
+        temperature=pretrain_cfg.get("temperature", 0.1),
+        seed=seed,
+    )
+    kwargs.update(arm_overrides)  # teacher_weight, conformer_pool_mode, energy_temperature
+    return kwargs
+
+
+def _run_probe(method: str, backbone_path: Path, adapt_cfg: dict, report_path: Path) -> dict:
+    raw = {
+        "command": "adapt",
+        "method": method,
+        "backbone": str(backbone_path),
+        "task": adapt_cfg.get("task", "regression"),
+        "dataset": adapt_cfg["dataset"],
+        "adapter": adapt_cfg.get("adapter", {}),
+        "training": adapt_cfg.get("training", {}),
+        "split": adapt_cfg.get("split", {}),
+        "outputs": {"report": str(report_path)},
+    }
+    summary = adapt_run(resolve_adapt_config(raw))
+    return summary["test_metrics"]
+
+
+def run_one_cell(
+    arm_name, arm_overrides, seed, pretrain_ds, holdout_examples,
+    pretrain_cfg, probes, adapt_cfg, out_dir, overwrite=False,
+) -> dict:
+    out_dir = Path(out_dir)
+    backbone_path = out_dir / f"{arm_name}_s{seed}.pt"
+    intrinsic_path = out_dir / f"{arm_name}_s{seed}_intrinsic.json"
+
+    intrinsic_row = {"arm": arm_name, "seed": seed, "status": "ok", "properties": {}}
+    extrinsic_rows: list[dict] = []
+
+    cache_hit = backbone_path.exists() and intrinsic_path.exists() and not overwrite
+    if cache_hit:
+        intrinsic_row["properties"] = json.loads(intrinsic_path.read_text())
+    else:
+        try:
+            result = contrastive_pretrain_on_dataset(
+                pretrain_ds, **_pretrain_kwargs(pretrain_cfg, arm_overrides, seed)
+            )
+        except Exception as exc:  # noqa: BLE001 - per-cell isolation
+            return _failed_cell(arm_name, seed, probes, f"pretrain failed: {exc}")
+
+        if not result.loss_history or not math.isfinite(result.loss_history[-1]):
+            return _failed_cell(arm_name, seed, probes, "non-finite pretraining loss")
+        if not all(torch.isfinite(p).all() for p in result.model.parameters()):
+            return _failed_cell(arm_name, seed, probes, "non-finite backbone weights")
+
+        _save_backbone(backbone_path, pretrain_ds, result, pretrain_cfg)
+        try:
+            props = evaluate_teacher(result.teacher, result.encoder3d, holdout_examples)
+        except Exception as exc:  # noqa: BLE001
+            props = {}
+            intrinsic_row["status"] = "failed"
+            intrinsic_row["error"] = str(exc)
+        intrinsic_row["properties"] = props
+        intrinsic_path.parent.mkdir(parents=True, exist_ok=True)
+        intrinsic_path.write_text(json.dumps(props, indent=2))
+
+    for probe in probes:
+        method = probe["method"]
+        report_path = out_dir / f"{arm_name}_s{seed}_{method}.json"
+        try:
+            if report_path.exists() and not overwrite:
+                cached = json.loads(report_path.read_text())
+                if "test_metrics" in cached:
+                    metrics = cached["test_metrics"]
+                else:
+                    metrics = cached
+            else:
+                metrics = _run_probe(method, backbone_path, adapt_cfg, report_path)
+            extrinsic_rows.append({
+                "arm": arm_name, "seed": seed, "method": method, "status": "ok",
+                "mae": float(metrics["mae"]), "r2": float(metrics["r2"]),
+            })
+        except Exception as exc:  # noqa: BLE001
+            extrinsic_rows.append({
+                "arm": arm_name, "seed": seed, "method": method, "status": "failed",
+                "mae": None, "r2": None, "error": str(exc),
+            })
+
+    return {"extrinsic": extrinsic_rows, "intrinsic": intrinsic_row}
+
+
+def _failed_cell(arm_name, seed, probes, message: str) -> dict:
+    return {
+        "extrinsic": [
+            {"arm": arm_name, "seed": seed, "method": p["method"], "status": "failed",
+             "mae": None, "r2": None, "error": message}
+            for p in probes
+        ],
+        "intrinsic": {"arm": arm_name, "seed": seed, "status": "failed",
+                      "properties": {}, "error": message},
+    }
