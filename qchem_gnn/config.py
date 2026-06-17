@@ -35,6 +35,8 @@ VALID_SECTION_KEYS = {
         "supervised_weight",
         "contrastive_weight",
         "temperature",
+        "teacher_weight",
+        "energy_temperature",
         "hidden_dim_3d",
         "num_rbf",
         "cutoff",
@@ -76,6 +78,8 @@ DEFAULT_CONFIG: ConfigDict = {
         "supervised_weight": 1.0,
         "contrastive_weight": 1.0,
         "temperature": 0.1,
+        "teacher_weight": 1.0,
+        "energy_temperature": 298.15,
         "hidden_dim_3d": 32,
         "num_rbf": 16,
         "cutoff": 5.0,
@@ -214,6 +218,12 @@ def _validate_config(config: ConfigDict) -> None:
     )
     contrastive["contrastive_weight"] = _ensure_non_negative_float(
         contrastive["contrastive_weight"], "contrastive.contrastive_weight"
+    )
+    contrastive["teacher_weight"] = _ensure_non_negative_float(
+        contrastive["teacher_weight"], "contrastive.teacher_weight"
+    )
+    contrastive["energy_temperature"] = _ensure_positive_float(
+        contrastive["energy_temperature"], "contrastive.energy_temperature"
     )
     if contrastive["conformer_pool_mode"] not in {"mean", "weighted", "energy"}:
         raise ConfigError("contrastive.conformer_pool_mode must be one of mean, weighted, energy")
@@ -372,6 +382,8 @@ def config_to_namespace(config: ConfigDict) -> Namespace:
                     "supervised_weight": _coerce_float(contrastive["supervised_weight"], "contrastive.supervised_weight"),
                     "contrastive_weight": _coerce_float(contrastive["contrastive_weight"], "contrastive.contrastive_weight"),
                     "temperature": _coerce_float(contrastive["temperature"], "contrastive.temperature"),
+                    "teacher_weight": _coerce_float(contrastive["teacher_weight"], "contrastive.teacher_weight"),
+                    "energy_temperature": _coerce_float(contrastive["energy_temperature"], "contrastive.energy_temperature"),
                     "hidden_dim_3d": _coerce_int(contrastive["hidden_dim_3d"], "contrastive.hidden_dim_3d"),
                     "num_rbf": _coerce_int(contrastive["num_rbf"], "contrastive.num_rbf"),
                     "cutoff": _coerce_float(contrastive["cutoff"], "contrastive.cutoff"),

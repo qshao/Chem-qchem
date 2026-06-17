@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from .boltzmann import boltzmann_average
 from .conformer import ConformerEncoderBatch, pool_conformers_to_molecules
 from .encoder3d import Conformer3DEncoder
 from .graph import GraphBatch
@@ -13,6 +14,28 @@ from .losses import compute_multitask_loss, info_nce_contrastive_loss
 from .minimal import MinimalQuantumDataset
 from .model import MolecularQuantumGNN
 from .quantum_data import compute_target_normalization, normalize_targets
+from .teacher_heads import QuantumTeacherHeads, assemble_conformer_targets, teacher_loss
+
+
+def _boltzmann_pool_molecules(
+    conformer_embeddings: torch.Tensor,
+    conformer_molecule_index: torch.Tensor,
+    conformer_energy: torch.Tensor | None,
+    num_molecules: int,
+    temperature: float,
+    mode: str,
+) -> torch.Tensor:
+    pooled = []
+    for molecule_id in range(num_molecules):
+        mask = conformer_molecule_index == molecule_id
+        embeddings = conformer_embeddings[mask]
+        if mode == "energy" and conformer_energy is not None:
+            pooled.append(
+                boltzmann_average(embeddings, conformer_energy[mask], temperature)
+            )
+        else:
+            pooled.append(embeddings.mean(dim=0))
+    return torch.stack(pooled, dim=0)
 
 
 class ProjectionHead(nn.Module):
@@ -65,6 +88,8 @@ def contrastive_pretrain_on_dataset(
     supervised_weight: float = 1.0,
     contrastive_weight: float = 1.0,
     temperature: float = 0.1,
+    teacher_weight: float = 1.0,
+    energy_temperature: float = 298.15,
     conformer_pool_mode: str = "mean",
     seed: int = 0,
 ) -> ContrastivePretrainingResult:
@@ -72,11 +97,13 @@ def contrastive_pretrain_on_dataset(
     examples = dataset.examples
     normalization = compute_target_normalization(dataset)
 
+    node_targets = int(examples[0].node_target.shape[-1])
     model = MolecularQuantumGNN(
         atom_vocab_size=128,
         bond_vocab_size=8,
         hidden_dim=hidden_dim,
         num_message_passing_steps=num_message_passing_steps,
+        node_targets=node_targets,
         graph_targets=2,
     )
     encoder3d = Conformer3DEncoder(
@@ -86,10 +113,12 @@ def contrastive_pretrain_on_dataset(
         cutoff=cutoff,
         num_message_passing_steps=num_message_passing_steps_3d,
     )
+    teacher = QuantumTeacherHeads(hidden_dim=hidden_dim_3d)
     proj_2d = ProjectionHead(hidden_dim, hidden_dim)
     proj_3d = ProjectionHead(hidden_dim_3d, hidden_dim)
 
     params = list(model.parameters()) + list(encoder3d.parameters())
+    params += list(teacher.parameters())
     params += list(proj_2d.parameters()) + list(proj_3d.parameters())
     optimizer = torch.optim.Adam(params, lr=learning_rate)
 
@@ -112,36 +141,58 @@ def contrastive_pretrain_on_dataset(
             supervised = _supervised_loss_for_batch(model_output, batch_examples, normalization)
 
             contrastive = torch.zeros((), dtype=supervised.dtype, device=supervised.device)
-            with_coords = [ex for ex in batch_examples if ex.conformer_coords]
-            if contrastive_weight and len(with_coords) >= 2:
-                coords_index = [
-                    pos for pos, ex in enumerate(batch_examples) if ex.conformer_coords
-                ]
+            teacher_term = torch.zeros((), dtype=supervised.dtype, device=supervised.device)
+            usable = [
+                (pos, ex)
+                for pos, ex in enumerate(batch_examples)
+                if ex.conformer_coords and ex.conformer_node_targets is not None
+            ]
+            if len(usable) >= 2:
+                coords_index = [pos for pos, _ in usable]
+                usable_examples = [ex for _, ex in usable]
                 conformer_batch = ConformerEncoderBatch.from_molecule_conformers(
-                    [ex.graph for ex in with_coords],
-                    [ex.conformer_coords for ex in with_coords],
-                    conformer_energies=None,
+                    [ex.graph for ex in usable_examples],
+                    [ex.conformer_coords for ex in usable_examples],
+                    conformer_energies=[ex.conformer_energies for ex in usable_examples],
                 )
-                conformer_embeddings = encoder3d(
+                node_states_3d, conformer_embeddings = encoder3d.forward_with_nodes(
                     conformer_batch.atomic_numbers,
                     conformer_batch.edge_index,
                     conformer_batch.positions,
                     conformer_batch.node_conformer_index,
                     conformer_batch.num_conformers,
                 )
-                molecule_3d = pool_conformers_to_molecules(
-                    conformer_embeddings,
-                    conformer_batch.conformer_molecule_index,
-                    conformer_batch.conformer_energy,
-                    conformer_batch.num_molecules,
-                    mode=conformer_pool_mode,
-                )
-                molecule_2d = model_output.mol_embedding[coords_index]
-                contrastive = info_nce_contrastive_loss(
-                    proj_2d(molecule_2d), proj_3d(molecule_3d), temperature=temperature
-                )
 
-            total = supervised_weight * supervised + contrastive_weight * contrastive
+                # Teacher: per-conformer quantum regression.
+                if teacher_weight:
+                    node_pred, edge_pred, graph_pred = teacher(
+                        node_states_3d, conformer_batch.edge_index, conformer_embeddings
+                    )
+                    node_t, edge_t, graph_t, _ = assemble_conformer_targets(usable_examples)
+                    teacher_term = teacher_loss(
+                        node_pred, edge_pred, graph_pred, node_t, edge_t, graph_t
+                    )
+
+                # Contrastive: align 2D molecule embedding to Boltzmann-pooled 3D embedding.
+                if contrastive_weight:
+                    molecule_3d = _boltzmann_pool_molecules(
+                        conformer_embeddings,
+                        conformer_batch.conformer_molecule_index,
+                        conformer_batch.conformer_energy,
+                        conformer_batch.num_molecules,
+                        temperature=energy_temperature,
+                        mode=conformer_pool_mode,
+                    )
+                    molecule_2d = model_output.mol_embedding[coords_index]
+                    contrastive = info_nce_contrastive_loss(
+                        proj_2d(molecule_2d), proj_3d(molecule_3d), temperature=temperature
+                    )
+
+            total = (
+                supervised_weight * supervised
+                + contrastive_weight * contrastive
+                + teacher_weight * teacher_term
+            )
             optimizer.zero_grad()
             total.backward()
             optimizer.step()

@@ -88,6 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     contrastive.add_argument("--supervised-weight", type=float, help="Weight for supervised quantum loss")
     contrastive.add_argument("--contrastive-weight", type=float, help="Weight for contrastive loss")
     contrastive.add_argument("--temperature", type=float, help="InfoNCE temperature")
+    contrastive.add_argument("--teacher-weight", type=float, help="Weight for teacher regression loss")
+    contrastive.add_argument("--energy-temperature", type=float, help="Temperature (K) for Boltzmann conformer pooling")
     contrastive.add_argument("--conformer-pool-mode", help="Conformer pooling mode: mean, weighted, or energy")
     contrastive.add_argument("--seed", type=int, help="Random seed")
     contrastive.add_argument("--output", help="Checkpoint output path")
@@ -184,6 +186,8 @@ def _config_from_args(args) -> dict[str, object]:
                 ("supervised_weight", "supervised_weight"),
                 ("contrastive_weight", "contrastive_weight"),
                 ("temperature", "temperature"),
+                ("teacher_weight", "teacher_weight"),
+                ("energy_temperature", "energy_temperature"),
                 ("conformer_pool_mode", "conformer_pool_mode"),
                 ("seed", "seed"),
             ):
@@ -461,6 +465,8 @@ def run_contrastive_pretrain(args) -> int:
         supervised_weight=args.supervised_weight,
         contrastive_weight=args.contrastive_weight,
         temperature=args.temperature,
+        teacher_weight=args.teacher_weight,
+        energy_temperature=args.energy_temperature,
         conformer_pool_mode=args.conformer_pool_mode,
         seed=args.seed,
     )
