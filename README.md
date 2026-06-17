@@ -71,6 +71,20 @@ Minimal pretraining example:
 python -m qchem_gnn.cli pretrain --config configs/minimal_pretrain.yaml
 ```
 
+### Cross-modal 2D/3D contrastive pretraining
+
+Distills the 3D/quantum view (conformer geometries) into the 2D encoder via a
+cross-modal contrastive objective. Inference stays 2D-only — checkpoints work
+with `export-embeddings` and `eval` unchanged.
+
+```bash
+python -m qchem_gnn.cli contrastive-pretrain --config configs/minimal_contrastive_pretrain.yaml
+```
+
+To compare against the supervised-only baseline, run the ablation via
+`qchem_gnn.contrastive_pretrain.run_contrastive_ablation`, which reports linear-probe
+metrics for both arms on the same split.
+
 You can still override YAML values on the command line. For example:
 
 ```bash
@@ -123,6 +137,22 @@ Other supported downstream modes are:
 - `linear-probe`
 - `morgan-baseline`
 - `sample-efficiency`
+
+## Bash launchers
+
+Two convenience scripts are available under `scripts/`:
+
+```bash
+bash scripts/train.sh
+bash scripts/infer.sh
+```
+
+By default:
+
+- `scripts/train.sh` runs `train` with `configs/minimal_train.yaml`
+- `scripts/infer.sh` runs `export-embeddings` with `configs/export_embeddings.yaml`
+
+Both scripts will use an active virtual environment if one is already set. If no environment is active, they will source `.venv/bin/activate` when that file exists.
 
 ## YAML configuration
 

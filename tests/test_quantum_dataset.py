@@ -1,3 +1,4 @@
+import pickle
 from pathlib import Path
 import sys
 import types
@@ -7,7 +8,7 @@ import pandas as pd
 import torch
 
 from qchem_gnn.dataset_index import DatasetIndex, iter_dataset_indices
-from qchem_gnn.minimal import load_quantum_zinc_dataset
+from qchem_gnn.minimal import load_minimal_zinc_dataset, load_quantum_zinc_dataset
 
 
 class FakeDataset:
@@ -187,15 +188,6 @@ def test_load_quantum_zinc_dataset_aggregates_fake_hdf5_targets(tmp_path):
     assert example.edge_target.shape == (8, 1)
     assert torch.allclose(example.edge_target, torch.full((8, 1), 1.5))
     assert torch.allclose(example.graph_target, torch.tensor([-1.5, 4.5]))
-
-
-import pickle
-
-import numpy as np
-import pandas as pd
-import torch
-
-from qchem_gnn.minimal import load_minimal_zinc_dataset
 
 
 def test_dataset_surfaces_conformer_coordinates(tmp_path):

@@ -1,6 +1,6 @@
 import torch
 
-from qchem_gnn.encoder3d import GaussianRBF
+from qchem_gnn.encoder3d import Conformer3DEncoder, GaussianRBF
 
 
 def test_gaussian_rbf_shapes_and_range():
@@ -12,9 +12,6 @@ def test_gaussian_rbf_shapes_and_range():
     assert torch.isfinite(expanded).all()
     # Gaussian activations are bounded by 1.0 (peak when distance equals a center).
     assert (expanded.max(dim=-1).values <= 1.0 + 1e-6).all()
-
-
-from qchem_gnn.encoder3d import Conformer3DEncoder
 
 
 def _two_atom_conformer():
