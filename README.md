@@ -138,22 +138,6 @@ Other supported downstream modes are:
 - `morgan-baseline`
 - `sample-efficiency`
 
-## Bash launchers
-
-Two convenience scripts are available under `scripts/`:
-
-```bash
-bash scripts/train.sh
-bash scripts/infer.sh
-```
-
-By default:
-
-- `scripts/train.sh` runs `train` with `configs/minimal_train.yaml`
-- `scripts/infer.sh` runs `export-embeddings` with `configs/export_embeddings.yaml`
-
-Both scripts will use an active virtual environment if one is already set. If no environment is active, they will source `.venv/bin/activate` when that file exists.
-
 ## YAML configuration
 
 The project supports YAML configuration files for all main entry points:
