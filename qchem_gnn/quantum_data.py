@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from .boltzmann import boltzmann_average
 from .dataset_index import DatasetIndex, build_dataset_index, iter_dataset_indices
 from .graph import build_graph_from_smiles
 
@@ -310,22 +311,37 @@ def load_quantum_zinc_dataset(
                 geometry = geometry_lookup.get(mol_id, {})
                 mol_group = _result_group(h5_handle, mol_id)
 
+                conformer_node_targets = None
+                conformer_edge_targets = None
+                conformer_graph_targets = None
+                conformer_energies = None
+
+                if use_results and h5_handle is not None and mol_group is None:
+                    # real-data mode: require DFT results, skip molecules without them
+                    skipped_mol_ids.append(mol_id)
+                    continue
+
                 if mol_group is None:
                     node_target, edge_target, graph_target = _build_proxy_targets(graph)
                     conformer_count = len(geometry.get("conformers", []))
+                    conformer_coords = _conformer_coords_from_geometry(geometry, graph.num_nodes)
                 else:
-                    try:
-                        node_target, edge_target, graph_target = _aggregate_targets(graph, mol_group)
-                        conformer_count = len(_conformer_groups(mol_group))
-                    except Exception:
-                        node_target, edge_target, graph_target = _build_proxy_targets(graph)
-                        conformer_count = len(geometry.get("conformers", []))
+                    pct = extract_per_conformer_targets(graph, mol_group)
+                    conformer_node_targets = pct.node_targets
+                    conformer_edge_targets = pct.edge_targets
+                    conformer_graph_targets = pct.graph_targets
+                    conformer_energies = pct.energies
+                    conformer_coords = pct.coords
+                    conformer_count = len(pct.coords)
+                    node_target = boltzmann_average(pct.node_targets, pct.energies)
+                    edge_target = boltzmann_average(pct.edge_targets, pct.energies)
+                    graph_target = boltzmann_average(pct.graph_targets, pct.energies)
 
                 aux_target = None
                 if aux_available:
-                    aux_target = torch.tensor([float(row.logP), float(row.qed), float(row.SAS)], dtype=torch.float32)
-                conformer_coords = _conformer_coords_from_geometry(geometry, graph.num_nodes)
-                conformer_energies = None  # energies require HDF5 results; mean pooling is used otherwise
+                    aux_target = torch.tensor(
+                        [float(row.logP), float(row.qed), float(row.SAS)], dtype=torch.float32
+                    )
                 examples.append(
                     MinimalQuantumExample(
                         mol_id=mol_id,
@@ -339,6 +355,9 @@ def load_quantum_zinc_dataset(
                         aux_target=aux_target,
                         conformer_coords=conformer_coords,
                         conformer_energies=conformer_energies,
+                        conformer_node_targets=conformer_node_targets,
+                        conformer_edge_targets=conformer_edge_targets,
+                        conformer_graph_targets=conformer_graph_targets,
                     )
                 )
             except Exception:

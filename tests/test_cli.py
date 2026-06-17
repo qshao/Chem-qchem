@@ -501,7 +501,15 @@ def test_train_cli_accepts_dataset_root_use_results_and_custom_results_dir(tmp_p
                 'iao_pops': np.array([1.0, 1.1, 1.2, 1.3, 1.4], dtype=np.float32),
                 'wbi': np.full((5, 5), 1.0, dtype=np.float32),
             }
-        }
+        },
+        'subset_1_idx_0': {
+            'conf_0': {
+                'coords': np.zeros((8, 3), dtype=np.float32),
+                'chelpg': np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], dtype=np.float32),
+                'iao_pops': np.array([1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7], dtype=np.float32),
+                'wbi': np.full((8, 8), 1.0, dtype=np.float32),
+            }
+        },
     }
 
     fake_h5py = types.ModuleType('h5py')

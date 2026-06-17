@@ -172,22 +172,20 @@ def test_load_quantum_zinc_dataset_aggregates_fake_hdf5_targets(tmp_path):
     example = dataset[0]
     assert example.mol_id == 'subset_0_idx_0'
     assert example.conformer_count == 2
+    # Boltzmann weights at T=298.15K with energies -1.0 and -2.0 Hartree give
+    # effectively all weight to the lower-energy conformer (conf_1).
+    # node_target is chelpg only (1 channel), Boltzmann-averaged -> ~conf_1 values.
+    assert example.node_target.shape == (5, 1)
     assert torch.allclose(
         example.node_target,
-        torch.tensor(
-            [
-                [0.6, 1.5],
-                [0.7, 1.6],
-                [0.8, 1.7],
-                [0.9, 1.8],
-                [1.0, 1.9],
-            ],
-            dtype=torch.float32,
-        ),
+        torch.tensor([[1.1], [1.2], [1.3], [1.4], [1.5]], dtype=torch.float32),
+        atol=1e-3,
     )
     assert example.edge_target.shape == (8, 1)
-    assert torch.allclose(example.edge_target, torch.full((8, 1), 1.5))
-    assert torch.allclose(example.graph_target, torch.tensor([-1.5, 4.5]))
+    # All edges in methane are C-H bonds; wbi_methane(2.0) -> wbi[0,i]=wbi[i,0]=2.0
+    assert torch.allclose(example.edge_target, torch.full((8, 1), 2.0), atol=1e-3)
+    # graph_target: [energy, polarizability] -> ~[-2.0, 6.0] for conf_1
+    assert torch.allclose(example.graph_target, torch.tensor([-2.0, 6.0]), atol=1e-3)
 
 
 def test_dataset_surfaces_conformer_coordinates(tmp_path):
