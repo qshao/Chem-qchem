@@ -380,6 +380,7 @@ def run_pretrain(args) -> int:
 
     resolved_config = getattr(args, "resolved_config", None)
     run_metadata = _checkpoint_run_metadata()
+    node_targets = int(dataset.examples[0].node_target.shape[-1])
     result = pretrain_on_minimal_dataset(
         dataset,
         hidden_dim=args.hidden_dim,
@@ -405,6 +406,7 @@ def run_pretrain(args) -> int:
             "bond_vocab_size": 8,
             "hidden_dim": args.hidden_dim,
             "num_message_passing_steps": args.message_passing_steps,
+            "node_targets": node_targets,
             "graph_targets": 2,
         },
         run_metadata={
@@ -539,6 +541,8 @@ def run_train(args) -> int:
         if args.hidden_dim != checkpoint_hidden_dim or args.message_passing_steps != checkpoint_message_passing_steps:
             raise SystemExit("--resume-from requires hidden_dim and message-passing-steps to match the checkpoint")
         dataset = _build_dataset_from_config(dataset_config)
+        node_targets = int(dataset.examples[0].node_target.shape[-1])
+        model_config["node_targets"] = node_targets
         result = train_on_minimal_dataset(
             dataset,
             hidden_dim=args.hidden_dim,
@@ -607,6 +611,7 @@ def run_train(args) -> int:
 
     resolved_config = getattr(args, "resolved_config", None)
     run_metadata = _checkpoint_run_metadata()
+    node_targets = int(dataset.examples[0].node_target.shape[-1])
     result = train_on_minimal_dataset(
         dataset,
         hidden_dim=args.hidden_dim,
@@ -633,6 +638,7 @@ def run_train(args) -> int:
             "bond_vocab_size": 8,
             "hidden_dim": args.hidden_dim,
             "num_message_passing_steps": args.message_passing_steps,
+            "node_targets": node_targets,
             "graph_targets": 2,
         },
         run_metadata={

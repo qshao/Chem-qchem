@@ -90,11 +90,14 @@ def train_on_minimal_dataset(
         target_normalization,
     )
 
+    examples = dataset.examples
+    node_targets = int(examples[0].node_target.shape[-1])
     model = MolecularQuantumGNN(
         atom_vocab_size=128,
         bond_vocab_size=8,
         hidden_dim=hidden_dim,
         num_message_passing_steps=num_message_passing_steps,
+        node_targets=node_targets,
         graph_targets=2,
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)

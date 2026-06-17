@@ -70,11 +70,14 @@ def pretrain_on_minimal_dataset(
     if aux_targets is not None:
         normalized_aux_targets = (aux_targets - aux_normalization["aux_mean"]) / aux_normalization["aux_std"]
 
+    examples = dataset.examples
+    node_targets = int(examples[0].node_target.shape[-1])
     model = MolecularQuantumGNN(
         atom_vocab_size=128,
         bond_vocab_size=8,
         hidden_dim=hidden_dim,
         num_message_passing_steps=num_message_passing_steps,
+        node_targets=node_targets,
         graph_targets=2,
     )
     aux_dim = int(aux_targets.shape[-1]) if aux_targets is not None else 0
