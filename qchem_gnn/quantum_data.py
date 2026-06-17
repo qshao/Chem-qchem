@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pickle
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -154,6 +155,81 @@ def _aggregate_targets(graph, mol_group) -> tuple[torch.Tensor, torch.Tensor, to
     )
 
     return node_target, edge_target, graph_target
+
+
+@dataclass(frozen=True)
+class PerConformerTargets:
+    coords: list[torch.Tensor]
+    node_targets: torch.Tensor   # [C, N, 1]
+    edge_targets: torch.Tensor   # [C, E, 1]
+    graph_targets: torch.Tensor  # [C, 2]
+    energies: torch.Tensor       # [C]
+
+
+def _isotropic_polarizability(value) -> float:
+    tensor = _as_tensor(value)
+    if tensor.numel() == 1:
+        return float(tensor.item())
+    if tensor.shape == (3, 3):
+        return float(torch.diagonal(tensor).mean())
+    return float(tensor.mean())
+
+
+def _conformer_polarizability(conf_group) -> float:
+    attrs = getattr(conf_group, "attrs", {})
+    if "polarizability" in attrs:
+        return _isotropic_polarizability(attrs["polarizability"])
+    if "alpha" in attrs:
+        return _isotropic_polarizability(attrs["alpha"])
+    dataset = _collect_conf_value(conf_group, ("polarizability", "alpha"))
+    return _isotropic_polarizability(dataset) if dataset is not None else 0.0
+
+
+def extract_per_conformer_targets(graph, mol_group) -> PerConformerTargets:
+    conf_groups = _conformer_groups(mol_group)
+    if not conf_groups:
+        raise ValueError("Result group contains no conformer groups")
+
+    coords: list[torch.Tensor] = []
+    node_targets: list[torch.Tensor] = []
+    edge_targets: list[torch.Tensor] = []
+    graph_targets: list[torch.Tensor] = []
+    energies: list[float] = []
+
+    src, dst = graph.edge_index[0], graph.edge_index[1]
+    for conf_group in conf_groups:
+        chelpg = _collect_conf_value(conf_group, ("chelpg",))
+        wbi = _collect_conf_value(conf_group, ("wbi",))
+        conf_coords = _collect_conf_value(conf_group, ("coords",))
+        if chelpg is None or wbi is None or conf_coords is None:
+            continue
+        if chelpg.shape[0] != graph.num_nodes or conf_coords.shape[0] != graph.num_nodes:
+            raise ValueError(
+                f"Atom count mismatch: graph has {graph.num_nodes}, "
+                f"conformer has chelpg {tuple(chelpg.shape)}"
+            )
+
+        node_targets.append(chelpg.unsqueeze(-1).to(torch.float32))
+        edge_targets.append(wbi[src, dst].unsqueeze(-1).to(torch.float32))
+        coords.append(conf_coords.to(torch.float32))
+
+        attrs = getattr(conf_group, "attrs", {})
+        energy = float(attrs["energy"]) if "energy" in attrs else 0.0
+        energies.append(energy)
+        graph_targets.append(
+            torch.tensor([energy, _conformer_polarizability(conf_group)], dtype=torch.float32)
+        )
+
+    if not node_targets:
+        raise ValueError("No conformer carried a complete chelpg/wbi/coords set")
+
+    return PerConformerTargets(
+        coords=coords,
+        node_targets=torch.stack(node_targets, dim=0),
+        edge_targets=torch.stack(edge_targets, dim=0),
+        graph_targets=torch.stack(graph_targets, dim=0),
+        energies=torch.tensor(energies, dtype=torch.float32),
+    )
 
 
 def _resolve_results_candidate(results_path: Path | None, subset_id: int) -> Path | None:
