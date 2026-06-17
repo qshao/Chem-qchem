@@ -70,14 +70,14 @@ class Conformer3DEncoder(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
         )
 
-    def forward(
+    def forward_with_nodes(
         self,
         atomic_numbers: torch.Tensor,
         edge_index: torch.Tensor,
         positions: torch.Tensor,
         node_conformer_index: torch.Tensor,
         num_conformers: int,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         node_states = self.atom_encoder(atomic_numbers)
         src, dst = edge_index
         distances = (positions[src] - positions[dst]).norm(dim=-1)
@@ -93,5 +93,24 @@ class Conformer3DEncoder(nn.Module):
             device=node_states.device,
         )
         pooled.index_add_(0, node_conformer_index, node_states)
-        counts = torch.bincount(node_conformer_index, minlength=num_conformers).clamp_min(1).unsqueeze(-1).to(pooled.device)
-        return self.embedding_head(pooled / counts)
+        counts = (
+            torch.bincount(node_conformer_index, minlength=num_conformers)
+            .clamp_min(1)
+            .unsqueeze(-1)
+            .to(pooled.device)
+        )
+        conformer_embedding = self.embedding_head(pooled / counts)
+        return node_states, conformer_embedding
+
+    def forward(
+        self,
+        atomic_numbers: torch.Tensor,
+        edge_index: torch.Tensor,
+        positions: torch.Tensor,
+        node_conformer_index: torch.Tensor,
+        num_conformers: int,
+    ) -> torch.Tensor:
+        _, conformer_embedding = self.forward_with_nodes(
+            atomic_numbers, edge_index, positions, node_conformer_index, num_conformers
+        )
+        return conformer_embedding
