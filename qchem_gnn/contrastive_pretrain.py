@@ -61,6 +61,8 @@ class ContrastivePretrainingResult:
     optimizer_state_dict: dict[str, object]
     epoch: int
     global_step: int
+    teacher: nn.Module | None = None
+    encoder3d: nn.Module | None = None
 
 
 def _supervised_loss_for_batch(model_output, examples, normalization) -> torch.Tensor:
@@ -219,6 +221,8 @@ def contrastive_pretrain_on_dataset(
         optimizer_state_dict=optimizer.state_dict(),
         epoch=epochs,
         global_step=epochs * ((num_examples + batch_size - 1) // batch_size),
+        teacher=teacher,
+        encoder3d=encoder3d,
     )
 
 
