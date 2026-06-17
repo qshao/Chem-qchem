@@ -1,0 +1,44 @@
+# configs/validate_quantum_teacher.yaml
+command: validate-quantum-teacher
+
+pretrain:
+  dataset_root: zinc-250k
+  subset_ids: [44]
+  limit_per_shard: 400          # >= 325 so all complete molecules load
+  hidden_dim: 64
+  message_passing_steps: 3
+  hidden_dim_3d: 64
+  message_passing_steps_3d: 3
+  num_rbf: 16
+  cutoff: 5.0
+  epochs: 100
+  batch_size: 16
+  learning_rate: 0.005
+  supervised_weight: 1.0
+  contrastive_weight: 1.0
+  temperature: 0.1
+
+arms:
+  baseline: { teacher_weight: 0.0, conformer_pool_mode: mean }
+  quantum:  { teacher_weight: 1.0, conformer_pool_mode: energy, energy_temperature: 298.15 }
+
+seeds: [0, 1, 2]
+
+holdout:
+  fraction: 0.15
+  seed: 1234
+
+probes:
+  - method: mlp_head            # frozen backbone — decisive
+  - method: finetune            # headline
+
+adapt:
+  dataset: { csv: data/delaney-processed.csv, smiles_col: auto, targets: auto }
+  task: regression
+  adapter: { hidden_dims: [128, 64], dropout: 0.1 }
+  training: { epochs: 300, lr: 1.0e-3, batch_size: 128, patience: 40, seed: 42 }
+  split: { test_frac: 0.2, val_frac: 0.25, seed: 42, stratify: true }
+
+outputs:
+  dir: runs/validate
+  report: runs/validate/report

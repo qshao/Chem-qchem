@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import statistics
+import sys
 from pathlib import Path
 
 import torch
@@ -321,3 +323,74 @@ def _failed_cell(arm_name, seed, probes, message: str) -> dict:
         "intrinsic": {"arm": arm_name, "seed": seed, "status": "failed",
                       "properties": {}, "error": message},
     }
+
+
+def _load_dataset(pretrain_cfg: dict):
+    from .quantum_data import load_quantum_zinc_subset_range
+
+    return load_quantum_zinc_subset_range(
+        pretrain_cfg["dataset_root"],
+        subset_ids=list(pretrain_cfg["subset_ids"]),
+        limit_per_shard=pretrain_cfg.get("limit_per_shard", 400),
+        results_path=pretrain_cfg.get("results"),
+        use_results=True,
+    )
+
+
+def run_validation(cfg: dict, dataset=None, overwrite=False) -> dict:
+    if dataset is None:
+        dataset = _load_dataset(cfg["pretrain"])
+
+    holdout_cfg = cfg["holdout"]
+    pretrain_ds, holdout = split_holdout(
+        dataset, fraction=holdout_cfg["fraction"], seed=holdout_cfg["seed"]
+    )
+
+    out_dir = Path(cfg["outputs"]["dir"])
+    extrinsic_rows: list[dict] = []
+    intrinsic_rows: list[dict] = []
+    for arm_name in ARMS:
+        arm_overrides = cfg["arms"][arm_name]
+        for seed in cfg["seeds"]:
+            cell = run_one_cell(
+                arm_name, arm_overrides, seed, pretrain_ds, holdout.examples,
+                cfg["pretrain"], cfg["probes"], cfg["adapt"], out_dir, overwrite=overwrite,
+            )
+            extrinsic_rows.extend(cell["extrinsic"])
+            intrinsic_rows.append(cell["intrinsic"])
+
+    aggregate = aggregate_results(extrinsic_rows, intrinsic_rows)
+
+    report_base = Path(cfg["outputs"]["report"])
+    report_base.parent.mkdir(parents=True, exist_ok=True)
+    report_base.with_suffix(".json").write_text(json.dumps(
+        {"rows": {"extrinsic": extrinsic_rows, "intrinsic": intrinsic_rows},
+         "aggregate": aggregate}, indent=2))
+    report_base.with_suffix(".md").write_text(render_report(aggregate))
+    return aggregate
+
+
+def load_validation_config(path) -> dict:
+    import yaml
+
+    cfg = yaml.safe_load(Path(path).read_text())
+    required = ("pretrain", "arms", "seeds", "holdout", "probes", "adapt", "outputs")
+    missing = [key for key in required if key not in cfg]
+    if missing:
+        raise ValueError(f"validation config missing keys: {missing}")
+    return cfg
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Quantum-teacher validation harness")
+    parser.add_argument("--config", required=True, help="path to validation YAML")
+    parser.add_argument("--overwrite", action="store_true", help="ignore cached artifacts")
+    args = parser.parse_args(argv)
+    cfg = load_validation_config(args.config)
+    aggregate = run_validation(cfg, overwrite=args.overwrite)
+    print(render_report(aggregate))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
