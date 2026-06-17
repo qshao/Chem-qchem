@@ -10,7 +10,7 @@ from .boltzmann import boltzmann_average
 from .conformer import ConformerEncoderBatch
 from .encoder3d import Conformer3DEncoder
 from .graph import GraphBatch
-from .losses import compute_multitask_loss, info_nce_contrastive_loss
+from .losses import compute_multitask_loss, info_nce_contrastive_loss, vicreg_loss
 from .minimal import MinimalQuantumDataset
 from .model import MolecularQuantumGNN
 from .quantum_data import compute_target_normalization, normalize_targets
@@ -93,6 +93,10 @@ def contrastive_pretrain_on_dataset(
     teacher_weight: float = 1.0,
     energy_temperature: float = 298.15,
     conformer_pool_mode: str = "mean",
+    contrastive_loss: str = "infonce",
+    vicreg_sim_weight: float = 25.0,
+    vicreg_var_weight: float = 25.0,
+    vicreg_cov_weight: float = 1.0,
     seed: int = 0,
 ) -> ContrastivePretrainingResult:
     torch.manual_seed(seed)
@@ -186,9 +190,20 @@ def contrastive_pretrain_on_dataset(
                         mode=conformer_pool_mode,
                     )
                     molecule_2d = model_output.mol_embedding[coords_index]
-                    contrastive = info_nce_contrastive_loss(
-                        proj_2d(molecule_2d), proj_3d(molecule_3d), temperature=temperature
-                    )
+                    view_2d = proj_2d(molecule_2d)
+                    view_3d = proj_3d(molecule_3d)
+                    if contrastive_loss == "vicreg":
+                        contrastive = vicreg_loss(
+                            view_2d,
+                            view_3d,
+                            sim_weight=vicreg_sim_weight,
+                            var_weight=vicreg_var_weight,
+                            cov_weight=vicreg_cov_weight,
+                        )
+                    else:
+                        contrastive = info_nce_contrastive_loss(
+                            view_2d, view_3d, temperature=temperature
+                        )
 
             total = (
                 supervised_weight * supervised

@@ -1,3 +1,4 @@
+import math
 import pickle
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import torch
 
 from qchem_gnn.minimal import load_minimal_zinc_dataset
 from qchem_gnn.contrastive_pretrain import contrastive_pretrain_on_dataset
+from tests._validation_fixtures import make_tiny_quantum_dataset
 
 
 def _write_subset_with_conformers(tmp_path: Path):
@@ -63,3 +65,29 @@ def test_contrastive_pretrain_runs_and_reduces_loss(tmp_path: Path):
 
     clone = MolecularQuantumGNN(atom_vocab_size=128, bond_vocab_size=8, hidden_dim=16, num_message_passing_steps=2, graph_targets=2)
     clone.load_state_dict(result.model.state_dict())
+
+
+def test_contrastive_pretrain_vicreg_runs(tmp_path):
+    dataset = make_tiny_quantum_dataset(tmp_path)
+    result = contrastive_pretrain_on_dataset(
+        dataset,
+        hidden_dim=16,
+        hidden_dim_3d=16,
+        epochs=2,
+        batch_size=4,
+        teacher_weight=1.0,
+        conformer_pool_mode="energy",
+        contrastive_loss="vicreg",
+        seed=0,
+    )
+    assert result.loss_history
+    assert math.isfinite(result.loss_history[-1])
+
+
+def test_contrastive_pretrain_infonce_still_default(tmp_path):
+    dataset = make_tiny_quantum_dataset(tmp_path)
+    result = contrastive_pretrain_on_dataset(
+        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+    )
+    assert result.loss_history
+    assert math.isfinite(result.loss_history[-1])
