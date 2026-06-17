@@ -203,10 +203,15 @@ def extract_per_conformer_targets(graph, mol_group) -> PerConformerTargets:
         conf_coords = _collect_conf_value(conf_group, ("coords",))
         if chelpg is None or wbi is None or conf_coords is None:
             continue
-        if chelpg.shape[0] != graph.num_nodes or conf_coords.shape[0] != graph.num_nodes:
+        if (
+            chelpg.shape[0] != graph.num_nodes
+            or conf_coords.shape[0] != graph.num_nodes
+            or wbi.shape != (graph.num_nodes, graph.num_nodes)
+        ):
             raise ValueError(
                 f"Atom count mismatch: graph has {graph.num_nodes}, "
-                f"conformer has chelpg {tuple(chelpg.shape)}"
+                f"conformer has chelpg {tuple(chelpg.shape)}, "
+                f"wbi {tuple(wbi.shape)}, coords {tuple(conf_coords.shape)}"
             )
 
         node_targets.append(chelpg.unsqueeze(-1).to(torch.float32))
