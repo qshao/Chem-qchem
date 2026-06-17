@@ -87,6 +87,20 @@ To compare against the supervised-only baseline, run the ablation via
 `qchem_gnn.contrastive_pretrain.run_contrastive_ablation`, which reports linear-probe
 metrics for both arms on the same split.
 
+### Downstream adaptation
+
+Train a lightweight adapter on external property data:
+
+```bash
+python -m qchem_gnn.cli adapt configs/adapt_mlp_head_solubility.yaml
+```
+
+Then use it for inference on new molecules:
+
+```bash
+python scripts/predict_property.py --adapter runs/mlp_head_solubility.pt "CCO"
+```
+
 You can still override YAML values on the command line. For example:
 
 ```bash
@@ -149,6 +163,7 @@ The project supports YAML configuration files for all main entry points:
 - `export-embeddings`
 - `eval`
 - `downstream`
+- `adapt` — trains a lightweight adapter (mlp_head, finetune, or engine) on any external property CSV and saves a deployable adapter for inference
 
 Example configs live in `configs/` and are intended as runnable starting points rather than placeholders.
 
@@ -181,6 +196,18 @@ Training and pretraining checkpoints store:
 
 - [Getting started: environment setup, training, and inference](docs/tutorials/getting_started.md) — full walkthrough from fresh checkout to property predictions
 - [Predicting solubility with the ENGINE adapter](docs/tutorials/engine_solubility_tutorial.md) — deep dive on the ENGINE side-structure method with epoch-sweep comparison
+
+### Solubility benchmark (Delaney ESOL, 1128 molecules, 60/20/20 split)
+
+| Method         | MAE   | RMSE  | R²    |
+|----------------|-------|-------|-------|
+| mlp_head       | 1.222 | 1.584 | 0.397 |
+| finetune       | 0.857 | 1.152 | 0.681 |
+| engine (100 ep)| 1.401 | 1.763 | 0.253 |
+| engine (400 ep)| 1.048 | 1.382 | 0.541 |
+
+Backbone: contrastive-pretrained GNN on ZINC-250k.
+Reproduce with `python -m qchem_gnn.cli adapt configs/adapt_<method>_solubility.yaml`.
 
 ## Notes
 
