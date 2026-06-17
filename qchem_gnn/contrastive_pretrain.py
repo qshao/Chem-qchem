@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -166,3 +167,38 @@ def contrastive_pretrain_on_dataset(
         epoch=epochs,
         global_step=epochs * ((num_examples + batch_size - 1) // batch_size),
     )
+
+
+from .eval import run_linear_probe  # noqa: E402
+from .splits import scaffold_or_random_split  # noqa: E402
+
+
+def run_contrastive_ablation(
+    dataset: MinimalQuantumDataset,
+    *,
+    hidden_dim: int = 32,
+    epochs: int = 200,
+    batch_size: int = 8,
+    contrastive_weight: float = 1.0,
+    seed: int = 0,
+) -> dict[str, dict]:
+    labels = np.stack(
+        [example.graph_target.detach().cpu().numpy() for example in dataset.examples], axis=0
+    )
+    split = scaffold_or_random_split(
+        [example.mol_id for example in dataset.examples], seed=seed
+    )
+
+    report: dict[str, dict] = {}
+    for arm_name, weight in (("supervised_only", 0.0), ("with_contrastive", contrastive_weight)):
+        result = contrastive_pretrain_on_dataset(
+            dataset,
+            hidden_dim=hidden_dim,
+            epochs=epochs,
+            batch_size=batch_size,
+            contrastive_weight=weight,
+            seed=seed,
+        )
+        embeddings = result.embeddings.detach().cpu().numpy()
+        report[arm_name] = run_linear_probe(embeddings, labels, split)
+    return report
