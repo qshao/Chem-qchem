@@ -66,6 +66,32 @@ def build_parser() -> argparse.ArgumentParser:
     pretrain.add_argument("--metrics-output", help="Optional metrics output path")
     pretrain.add_argument("--output", help="Checkpoint output path")
 
+    contrastive = subparsers.add_parser("contrastive-pretrain", help="Cross-modal 2D/3D contrastive pretraining")
+    contrastive.add_argument("--config", default=argparse.SUPPRESS, help="YAML config path")
+    contrastive.add_argument("--csv", help="Subset CSV path")
+    contrastive.add_argument("--dataset-root", help="Dataset root containing subsets/, geometries/, and results/")
+    contrastive.add_argument("--subset-ids", help="Comma-separated subset ids for dataset-root mode")
+    contrastive.add_argument("--geometry", help="Geometry pickle path")
+    contrastive.add_argument("--results", help="Optional HDF5 results path or directory")
+    contrastive.add_argument("--use-results", action="store_true", default=argparse.SUPPRESS, help="Load HDF5 quantum targets when available")
+    contrastive.add_argument("--limit", type=int, help="Maximum molecules to load")
+    contrastive.add_argument("--limit-per-shard", type=int, help="Maximum molecules to load per shard in dataset-root mode")
+    contrastive.add_argument("--epochs", type=int, help="Training epochs")
+    contrastive.add_argument("--hidden-dim", type=int, help="2D encoder hidden dimension")
+    contrastive.add_argument("--message-passing-steps", type=int, help="2D message passing steps")
+    contrastive.add_argument("--hidden-dim-3d", type=int, help="3D teacher hidden dimension")
+    contrastive.add_argument("--message-passing-steps-3d", type=int, help="3D message passing steps")
+    contrastive.add_argument("--num-rbf", type=int, help="Number of Gaussian RBF centers")
+    contrastive.add_argument("--cutoff", type=float, help="RBF cutoff distance")
+    contrastive.add_argument("--batch-size", type=int, help="Minibatch size (in-batch negatives)")
+    contrastive.add_argument("--learning-rate", type=float, help="Adam learning rate")
+    contrastive.add_argument("--supervised-weight", type=float, help="Weight for supervised quantum loss")
+    contrastive.add_argument("--contrastive-weight", type=float, help="Weight for contrastive loss")
+    contrastive.add_argument("--temperature", type=float, help="InfoNCE temperature")
+    contrastive.add_argument("--conformer-pool-mode", help="Conformer pooling mode: mean, weighted, or energy")
+    contrastive.add_argument("--seed", type=int, help="Random seed")
+    contrastive.add_argument("--output", help="Checkpoint output path")
+
     export = subparsers.add_parser("export-embeddings", help="Export molecular embeddings from a checkpoint")
     export.add_argument("--config", default=argparse.SUPPRESS, help="YAML config path")
     export.add_argument("--checkpoint", help="Checkpoint path")
@@ -108,7 +134,7 @@ def _deep_merge_dict(base: dict[str, object], update: dict[str, object]) -> dict
 def _config_from_args(args) -> dict[str, object]:
     config: dict[str, object] = {"command": args.command}
 
-    if args.command in {"train", "pretrain"}:
+    if args.command in {"train", "pretrain", "contrastive-pretrain"}:
         dataset: dict[str, object] = {}
         for key in ("csv", "dataset_root", "subset_ids", "geometry", "results", "use_results", "limit", "limit_per_shard"):
             if hasattr(args, key):
@@ -135,6 +161,25 @@ def _config_from_args(args) -> dict[str, object]:
                 training[key] = getattr(args, key)
         if training:
             config["training"] = training
+
+        if args.command == "contrastive-pretrain":
+            contrastive_cfg: dict[str, object] = {}
+            for arg_name, key in (
+                ("hidden_dim_3d", "hidden_dim_3d"),
+                ("message_passing_steps_3d", "message_passing_steps_3d"),
+                ("num_rbf", "num_rbf"),
+                ("cutoff", "cutoff"),
+                ("batch_size", "batch_size"),
+                ("supervised_weight", "supervised_weight"),
+                ("contrastive_weight", "contrastive_weight"),
+                ("temperature", "temperature"),
+                ("conformer_pool_mode", "conformer_pool_mode"),
+                ("seed", "seed"),
+            ):
+                if hasattr(args, arg_name):
+                    contrastive_cfg[key] = getattr(args, arg_name)
+            if contrastive_cfg:
+                config["contrastive"] = contrastive_cfg
 
         outputs: dict[str, object] = {}
         for arg_name, key in (("metrics_output", "metrics"), ("output", "checkpoint")):
@@ -197,7 +242,7 @@ def _resolved_namespace_from_args(args) -> argparse.Namespace:
         }
 
     merged_config = _deep_merge_dict(base_config, yaml_config) if base_config else yaml_config
-    if args.command in {"train", "pretrain"} and isinstance(merged_config.get("dataset"), dict):
+    if args.command in {"train", "pretrain", "contrastive-pretrain"} and isinstance(merged_config.get("dataset"), dict):
         cli_dataset = cli_config.get("dataset") if isinstance(cli_config.get("dataset"), dict) else {}
         merged_dataset = merged_config["dataset"]
         if cli_dataset.get("csv") is not None:
@@ -364,6 +409,87 @@ def run_pretrain(args) -> int:
     if args.metrics_output:
         save_metrics(args.metrics_output, _training_metrics(dataset, result, use_results=args.use_results, hidden_dim=args.hidden_dim, message_passing_steps=args.message_passing_steps, learning_rate=args.learning_rate, epochs=args.epochs, run_metadata=run_metadata, extra={"aux_weight": args.aux_weight}))
     return 0
+
+def run_contrastive_pretrain(args) -> int:
+    from .contrastive_pretrain import contrastive_pretrain_on_dataset
+
+    current_config = normalize_dataset_config(_dataset_kwargs_from_args(args))
+    if args.dataset_root:
+        if not args.subset_ids:
+            raise SystemExit("--subset-ids is required when --dataset-root is used")
+        subset_ids = [int(part.strip()) for part in args.subset_ids.split(",") if part.strip()]
+        dataset = load_quantum_zinc_subset_range(
+            args.dataset_root,
+            subset_ids=subset_ids,
+            limit_per_shard=args.limit_per_shard,
+            results_path=args.results,
+            use_results=args.use_results,
+        )
+    else:
+        if not args.csv:
+            raise SystemExit("--csv is required when --dataset-root is not used")
+        dataset = load_quantum_zinc_dataset(
+            args.csv,
+            geometry_path=args.geometry,
+            results_path=args.results,
+            limit=args.limit,
+            use_results=args.use_results,
+        )
+
+    result = contrastive_pretrain_on_dataset(
+        dataset,
+        hidden_dim=args.hidden_dim,
+        num_message_passing_steps=args.message_passing_steps,
+        hidden_dim_3d=args.hidden_dim_3d,
+        num_rbf=args.num_rbf,
+        cutoff=args.cutoff,
+        num_message_passing_steps_3d=args.message_passing_steps_3d,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        supervised_weight=args.supervised_weight,
+        contrastive_weight=args.contrastive_weight,
+        temperature=args.temperature,
+        conformer_pool_mode=args.conformer_pool_mode,
+        seed=args.seed,
+    )
+
+    split_metadata = {
+        "subset_ids": [int(part.strip()) for part in args.subset_ids.split(",") if part.strip()]
+        if args.subset_ids
+        else [],
+    }
+    run_metadata = _checkpoint_run_metadata()
+    checkpoint_payload = build_checkpoint_state(
+        loss_history=result.loss_history,
+        embeddings=result.embeddings,
+        model_state_dict=result.model.state_dict(),
+        optimizer_state_dict=result.optimizer_state_dict,
+        epoch=result.epoch,
+        global_step=result.global_step,
+        target_normalization=result.target_normalization,
+        dataset_config=current_config,
+        split_metadata=split_metadata,
+        model_config={
+            "atom_vocab_size": 128,
+            "bond_vocab_size": 8,
+            "hidden_dim": args.hidden_dim,
+            "num_message_passing_steps": args.message_passing_steps,
+            "graph_targets": 2,
+        },
+        run_metadata={
+            "num_examples": len(dataset),
+            "num_skipped": len(dataset.skipped_mol_ids),
+            "epochs": args.epochs,
+            "contrastive_weight": args.contrastive_weight,
+            "contrastive_loss_history": result.contrastive_loss_history,
+            **run_metadata,
+            "resolved_config": getattr(args, "resolved_config", None),
+        },
+    )
+    save_checkpoint(Path(args.output), checkpoint_payload)
+    return 0
+
 
 def run_train(args) -> int:
     resolved_config = getattr(args, "resolved_config", None)
@@ -615,6 +741,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_train(args)
     if args.command == "pretrain":
         return run_pretrain(args)
+    if args.command == "contrastive-pretrain":
+        return run_contrastive_pretrain(args)
     if args.command == "export-embeddings":
         return run_export_embeddings(args)
     if args.command == "eval":

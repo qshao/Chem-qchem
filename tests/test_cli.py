@@ -812,3 +812,53 @@ def test_eval_cli_writes_metrics(tmp_path, monkeypatch):
     assert metrics['num_examples'] == 1
     assert 'loss' in metrics
     assert 'embedding_norm_mean' in metrics
+
+
+def _write_contrastive_inputs(tmp_path: Path):
+    csv_path = tmp_path / "subset_000.csv"
+    geo_path = tmp_path / "coords_000.pkl"
+    pd.DataFrame(
+        [
+            {"smiles": "C", "logP": 0.1, "qed": 0.2, "SAS": 0.3},
+            {"smiles": "CC", "logP": 0.4, "qed": 0.5, "SAS": 0.6},
+            {"smiles": "CCC", "logP": 0.2, "qed": 0.3, "SAS": 0.4},
+            {"smiles": "CCO", "logP": 0.5, "qed": 0.6, "SAS": 0.7},
+        ]
+    ).to_csv(csv_path, index=False)
+    import pickle as _pickle
+    _pickle.dump(
+        {
+            "subset_0_idx_0": {"smiles": "C", "charge": 0, "atomic_nums": [6, 1, 1, 1, 1], "conformers": [np.zeros((5, 3), dtype=np.float32)]},
+            "subset_0_idx_1": {"smiles": "CC", "charge": 0, "atomic_nums": [6, 6] + [1] * 6, "conformers": [np.zeros((8, 3), dtype=np.float32)]},
+            "subset_0_idx_2": {"smiles": "CCC", "charge": 0, "atomic_nums": [6, 6, 6] + [1] * 8, "conformers": [np.zeros((11, 3), dtype=np.float32)]},
+            "subset_0_idx_3": {"smiles": "CCO", "charge": 0, "atomic_nums": [6, 6, 8] + [1] * 6, "conformers": [np.zeros((9, 3), dtype=np.float32)]},
+        },
+        geo_path.open("wb"),
+    )
+    return csv_path, geo_path
+
+
+def test_cli_contrastive_pretrain_then_export(tmp_path: Path):
+    csv_path, geo_path = _write_contrastive_inputs(tmp_path)
+    checkpoint = tmp_path / "contrastive.pt"
+    embeddings = tmp_path / "emb.pt"
+
+    code = main(
+        [
+            "contrastive-pretrain",
+            "--csv", str(csv_path),
+            "--geometry", str(geo_path),
+            "--limit", "4",
+            "--epochs", "20",
+            "--hidden-dim", "16",
+            "--batch-size", "4",
+            "--output", str(checkpoint),
+        ]
+    )
+    assert code == 0
+    assert checkpoint.exists()
+
+    # The checkpoint must work with the unchanged export-embeddings path.
+    code = main(["export-embeddings", "--checkpoint", str(checkpoint), "--output", str(embeddings)])
+    assert code == 0
+    assert embeddings.exists()
