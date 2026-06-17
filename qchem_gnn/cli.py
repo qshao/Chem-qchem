@@ -91,6 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
     contrastive.add_argument("--teacher-weight", type=float, help="Weight for teacher regression loss")
     contrastive.add_argument("--energy-temperature", type=float, help="Temperature (K) for Boltzmann conformer pooling")
     contrastive.add_argument("--conformer-pool-mode", help="Conformer pooling mode: mean, weighted, or energy")
+    contrastive.add_argument("--contrastive-loss", help="Contrastive objective: infonce or vicreg")
+    contrastive.add_argument("--vicreg-sim-weight", type=float, help="VICReg invariance weight")
+    contrastive.add_argument("--vicreg-var-weight", type=float, help="VICReg variance weight")
+    contrastive.add_argument("--vicreg-cov-weight", type=float, help="VICReg covariance weight")
     contrastive.add_argument("--seed", type=int, help="Random seed")
     contrastive.add_argument("--output", help="Checkpoint output path")
 
@@ -189,6 +193,10 @@ def _config_from_args(args) -> dict[str, object]:
                 ("teacher_weight", "teacher_weight"),
                 ("energy_temperature", "energy_temperature"),
                 ("conformer_pool_mode", "conformer_pool_mode"),
+                ("contrastive_loss", "contrastive_loss"),
+                ("vicreg_sim_weight", "vicreg_sim_weight"),
+                ("vicreg_var_weight", "vicreg_var_weight"),
+                ("vicreg_cov_weight", "vicreg_cov_weight"),
                 ("seed", "seed"),
             ):
                 if hasattr(args, arg_name):
@@ -470,6 +478,10 @@ def run_contrastive_pretrain(args) -> int:
         teacher_weight=args.teacher_weight,
         energy_temperature=args.energy_temperature,
         conformer_pool_mode=args.conformer_pool_mode,
+        contrastive_loss=args.contrastive_loss,
+        vicreg_sim_weight=args.vicreg_sim_weight,
+        vicreg_var_weight=args.vicreg_var_weight,
+        vicreg_cov_weight=args.vicreg_cov_weight,
         seed=args.seed,
     )
 

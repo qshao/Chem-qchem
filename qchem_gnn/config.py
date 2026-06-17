@@ -42,6 +42,10 @@ VALID_SECTION_KEYS = {
         "cutoff",
         "message_passing_steps_3d",
         "conformer_pool_mode",
+        "contrastive_loss",
+        "vicreg_sim_weight",
+        "vicreg_var_weight",
+        "vicreg_cov_weight",
         "seed",
     },
     "outputs": {"checkpoint", "metrics", "embeddings"},
@@ -85,6 +89,10 @@ DEFAULT_CONFIG: ConfigDict = {
         "cutoff": 5.0,
         "message_passing_steps_3d": 2,
         "conformer_pool_mode": "mean",
+        "contrastive_loss": "infonce",
+        "vicreg_sim_weight": 25.0,
+        "vicreg_var_weight": 25.0,
+        "vicreg_cov_weight": 1.0,
         "seed": 0,
     },
     "outputs": {
@@ -227,6 +235,17 @@ def _validate_config(config: ConfigDict) -> None:
     )
     if contrastive["conformer_pool_mode"] not in {"mean", "weighted", "energy"}:
         raise ConfigError("contrastive.conformer_pool_mode must be one of mean, weighted, energy")
+    if contrastive["contrastive_loss"] not in {"infonce", "vicreg"}:
+        raise ConfigError("contrastive.contrastive_loss must be one of infonce, vicreg")
+    contrastive["vicreg_sim_weight"] = _ensure_non_negative_float(
+        contrastive["vicreg_sim_weight"], "contrastive.vicreg_sim_weight"
+    )
+    contrastive["vicreg_var_weight"] = _ensure_non_negative_float(
+        contrastive["vicreg_var_weight"], "contrastive.vicreg_var_weight"
+    )
+    contrastive["vicreg_cov_weight"] = _ensure_non_negative_float(
+        contrastive["vicreg_cov_weight"], "contrastive.vicreg_cov_weight"
+    )
 
     subset_ids = _ensure_sequence(dataset["subset_ids"], "dataset.subset_ids")
     dataset["subset_ids"] = [_coerce_int(value, "dataset.subset_ids[]") for value in subset_ids]
@@ -389,6 +408,10 @@ def config_to_namespace(config: ConfigDict) -> Namespace:
                     "cutoff": _coerce_float(contrastive["cutoff"], "contrastive.cutoff"),
                     "message_passing_steps_3d": _coerce_int(contrastive["message_passing_steps_3d"], "contrastive.message_passing_steps_3d"),
                     "conformer_pool_mode": contrastive["conformer_pool_mode"],
+                    "contrastive_loss": contrastive["contrastive_loss"],
+                    "vicreg_sim_weight": _coerce_float(contrastive["vicreg_sim_weight"], "contrastive.vicreg_sim_weight"),
+                    "vicreg_var_weight": _coerce_float(contrastive["vicreg_var_weight"], "contrastive.vicreg_var_weight"),
+                    "vicreg_cov_weight": _coerce_float(contrastive["vicreg_cov_weight"], "contrastive.vicreg_cov_weight"),
                     "seed": _coerce_int(contrastive["seed"], "contrastive.seed"),
                 }
             )

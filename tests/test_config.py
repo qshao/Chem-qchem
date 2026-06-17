@@ -558,3 +558,44 @@ def test_minimal_contrastive_yaml_resolves():
     assert resolved["command"] == "contrastive-pretrain"
     assert resolved["contrastive"]["batch_size"] >= 2
     assert resolved["outputs"]["checkpoint"]
+
+
+def _vicreg_base(extra_contrastive=None):
+    return {
+        "command": "contrastive-pretrain",
+        "dataset": {"dataset_root": "zinc-250k", "subset_ids": [44]},
+        "contrastive": extra_contrastive or {},
+        "outputs": {"checkpoint": "out.pt"},
+    }
+
+
+def test_config_default_contrastive_loss_is_infonce():
+    cfg = resolve_config(_vicreg_base())
+    assert cfg["contrastive"]["contrastive_loss"] == "infonce"
+    assert cfg["contrastive"]["vicreg_sim_weight"] == 25.0
+    assert cfg["contrastive"]["vicreg_var_weight"] == 25.0
+    assert cfg["contrastive"]["vicreg_cov_weight"] == 1.0
+
+
+def test_config_accepts_vicreg_contrastive_loss():
+    cfg = resolve_config(_vicreg_base({"contrastive_loss": "vicreg", "vicreg_cov_weight": 2.0}))
+    assert cfg["contrastive"]["contrastive_loss"] == "vicreg"
+    assert cfg["contrastive"]["vicreg_cov_weight"] == 2.0
+
+
+def test_config_rejects_invalid_contrastive_loss():
+    with pytest.raises(ConfigError):
+        resolve_config(_vicreg_base({"contrastive_loss": "barlow"}))
+
+
+def test_config_rejects_negative_vicreg_weight():
+    with pytest.raises(ConfigError):
+        resolve_config(_vicreg_base({"vicreg_sim_weight": -1.0}))
+
+
+def test_namespace_includes_vicreg_fields():
+    cfg = resolve_config(_vicreg_base({"contrastive_loss": "vicreg"}))
+    ns = config_to_namespace(cfg)
+    assert ns.contrastive_loss == "vicreg"
+    assert ns.vicreg_sim_weight == 25.0
+    assert ns.vicreg_cov_weight == 1.0
