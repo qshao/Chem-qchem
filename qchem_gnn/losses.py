@@ -69,3 +69,22 @@ def compute_multitask_loss(
             loss = loss + weight_map["aux"] * F.mse_loss(mol_embedding, aux_target)
 
     return loss
+
+
+def info_nce_contrastive_loss(
+    z_a: torch.Tensor,
+    z_b: torch.Tensor,
+    temperature: float = 0.1,
+) -> torch.Tensor:
+    if z_a.shape != z_b.shape:
+        raise ValueError("z_a and z_b must have the same shape")
+    if z_a.shape[0] < 2:
+        raise ValueError("contrastive loss needs at least 2 examples for in-batch negatives")
+
+    z_a = F.normalize(z_a, dim=-1)
+    z_b = F.normalize(z_b, dim=-1)
+    logits = (z_a @ z_b.t()) / temperature
+    labels = torch.arange(z_a.shape[0], device=z_a.device)
+    loss_ab = F.cross_entropy(logits, labels)
+    loss_ba = F.cross_entropy(logits.t(), labels)
+    return 0.5 * (loss_ab + loss_ba)
