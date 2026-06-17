@@ -118,6 +118,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated sample-efficiency fractions",
     )
     downstream.add_argument("--seed", type=int, help="Random seed")
+
+    adapt_cmd = subparsers.add_parser("adapt", help="Adapt a frozen/fine-tuned backbone to a property CSV")
+    adapt_cmd.add_argument("config", help="YAML config path")
+
     return parser
 
 
@@ -733,9 +737,26 @@ def run_downstream(args) -> int:
     return 0
 
 
+def run_adapt(args) -> int:
+    from .adapt.config import resolve_adapt_config
+    from .adapt.runner import run as run_adapt_single
+    from .adapt.sweep import run_sweep
+    raw = load_yaml_config(args.config)
+    cfg = resolve_adapt_config(raw)
+    if cfg.sweep is not None:
+        run_sweep(cfg)
+    else:
+        summary = run_adapt_single(cfg)
+        print(summary)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = _resolved_namespace_from_args(parser.parse_args(argv))
+    raw_args = parser.parse_args(argv)
+    if raw_args.command == "adapt":
+        return run_adapt(raw_args)
+    args = _resolved_namespace_from_args(raw_args)
 
     if args.command == "train":
         return run_train(args)

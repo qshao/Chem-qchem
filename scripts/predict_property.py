@@ -38,7 +38,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from qchem_gnn.adapters import predict
+from qchem_gnn.adapt import predict_smiles
 
 
 def _adapter_summary(adapter_path: Path) -> tuple[str, dict]:
@@ -101,21 +101,13 @@ def main() -> None:
     # ── Predict ────────────────────────────────────────────────────────────────
     print(f"\nScoring {len(smiles_list)} molecule(s) …")
 
-    # ENGINE needs extra kwargs; other adapters ignore them
-    if adapter_type == "engine":
-        from qchem_gnn.engine_adapter import load_adapter
-        from qchem_gnn.engine_adapter import predict as engine_predict
-        _, meta = load_adapter(adapter_path)
-        preds, valid_idx = engine_predict(
-            smiles_list,
-            backbone_ckpt=meta["backbone_checkpoint"],
-            adapter_path=adapter_path,
-            mode=args.mode,
-            exit_tolerance=args.exit_tol,
-            batch_size=args.batch,
-        )
-    else:
-        preds, valid_idx = predict(smiles_list, adapter_path, batch_size=args.batch)
+    preds, valid_idx = predict_smiles(
+        smiles_list, adapter_path,
+        mode=args.mode, exit_tolerance=args.exit_tol, batch_size=args.batch,
+    )
+    # preds is [N_valid, T]; for single-target take column 0 for the display table
+    if preds.ndim == 2 and preds.shape[1] == 1:
+        preds = preds[:, 0]
 
     # ── Output ─────────────────────────────────────────────────────────────────
     target_label = info.get("target_col", "prediction") if info else "prediction"
