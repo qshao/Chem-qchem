@@ -38,9 +38,9 @@ def _conformer_coords_from_geometry(geometry: dict, num_nodes: int) -> list[torc
     for conformer in conformers:
         tensor = _as_tensor(conformer)
         if tensor.ndim != 2 or tensor.shape[0] != num_nodes or tensor.shape[1] != 3:
-            return None
+            continue
         coords.append(tensor)
-    return coords or None
+    return coords if coords else None
 
 
 def _scalarize(value) -> float:

@@ -93,5 +93,5 @@ class Conformer3DEncoder(nn.Module):
             device=node_states.device,
         )
         pooled.index_add_(0, node_conformer_index, node_states)
-        counts = torch.bincount(node_conformer_index, minlength=num_conformers).clamp_min(1).unsqueeze(-1)
+        counts = torch.bincount(node_conformer_index, minlength=num_conformers).clamp_min(1).unsqueeze(-1).to(pooled.device)
         return self.embedding_head(pooled / counts)

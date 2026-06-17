@@ -111,7 +111,7 @@ def contrastive_pretrain_on_dataset(
             model_output = model(graph_batch)
             supervised = _supervised_loss_for_batch(model_output, batch_examples, normalization)
 
-            contrastive = torch.zeros((), dtype=supervised.dtype)
+            contrastive = torch.zeros((), dtype=supervised.dtype, device=supervised.device)
             with_coords = [ex for ex in batch_examples if ex.conformer_coords]
             if contrastive_weight and len(with_coords) >= 2:
                 coords_index = [
@@ -153,9 +153,11 @@ def contrastive_pretrain_on_dataset(
         loss_history.append(epoch_total / max(num_batches, 1))
         contrastive_loss_history.append(epoch_contrastive / max(num_batches, 1))
 
+    model.eval()
     with torch.no_grad():
         full_batch = GraphBatch.from_graphs([ex.graph for ex in examples])
         embeddings = model.encode_graph_embeddings(full_batch)
+    model.train()
 
     return ContrastivePretrainingResult(
         model=model,
@@ -169,10 +171,6 @@ def contrastive_pretrain_on_dataset(
     )
 
 
-from .eval import run_linear_probe  # noqa: E402
-from .splits import scaffold_or_random_split  # noqa: E402
-
-
 def run_contrastive_ablation(
     dataset: MinimalQuantumDataset,
     *,
@@ -182,6 +180,8 @@ def run_contrastive_ablation(
     contrastive_weight: float = 1.0,
     seed: int = 0,
 ) -> dict[str, dict]:
+    from .eval import run_linear_probe
+    from .splits import scaffold_or_random_split
     labels = np.stack(
         [example.graph_target.detach().cpu().numpy() for example in dataset.examples], axis=0
     )
