@@ -1,0 +1,27 @@
+command: adapt
+method: finetune
+backbone: runs/example_contrastive.pt
+task: regression
+dataset:
+  csv: data/delaney-processed.csv
+  smiles_col: auto
+  targets: auto
+adapter:
+  hidden_dims: [128, 64]
+  dropout: 0.1
+training:
+  epochs: 200
+  head_lr: 1.0e-3
+  backbone_lr: 5.0e-5
+  batch_size: 64
+  patience: 30
+  grad_clip: 1.0
+  seed: 42
+split:
+  test_frac: 0.2
+  val_frac: 0.25
+  seed: 42
+  stratify: true
+outputs:
+  adapter: runs/finetune_solubility.pt
+  report: runs/finetune_metrics.json

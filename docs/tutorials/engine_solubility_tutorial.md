@@ -140,16 +140,11 @@ so every partition covers the full range of log S):
 ### Command
 
 ```bash
-python scripts/train_engine_adapter.py \
-    --checkpoint runs/example_contrastive.pt \
-    --data data/delaney-processed.csv \
-    --test-frac 0.2 \
-    --val-frac  0.25 \
-    --epochs    10 \
-    --output    runs/solubility_adapter_tutorial.pt
+qchem adapt configs/adapt_engine_solubility.yaml
 ```
 
-`--val-frac 0.25` means 25 % of the 80 % non-test pool → 20 % of total.
+The config sets `test_frac: 0.2` and `val_frac: 0.25`, meaning 25 % of the
+80 % non-test pool → 20 % of total.
 
 ### Full output
 
@@ -208,8 +203,8 @@ already below 0.1 normalised units.
 ## Step 3 — Inference on new molecules
 
 ```bash
-python scripts/predict_solubility.py \
-    --adapter runs/solubility_adapter_tutorial.pt \
+python scripts/predict_property.py \
+    --adapter runs/engine_solubility.pt \
     "CCO" "c1ccccc1" "CC(=O)O" "CCCCCCCCC" "OC(=O)c1ccccc1" \
     "CC(C)(C)c1ccc2occ(CC(=O)Nc3ccccc3F)c2c1" "O=C(O)CCC(=O)O"
 ```
@@ -241,8 +236,8 @@ as poorly soluble, which is also chemically reasonable.
 
 To score a CSV file and save results:
 ```bash
-python scripts/predict_solubility.py \
-    --adapter runs/solubility_adapter_tutorial.pt \
+python scripts/predict_property.py \
+    --adapter runs/engine_solubility.pt \
     --csv my_molecules.csv \
     --smiles-col smiles \
     --output predictions.csv
@@ -305,12 +300,9 @@ this task.
 
 To reproduce the full sweep:
 ```bash
-python3 - <<'EOF'
-# (paste the epoch-sweep script here)
-EOF
+qchem adapt configs/adapt_engine_epoch_sweep.yaml
+# writes runs/engine_epoch_sweep.csv and prints the comparison table
 ```
-or simply re-run `train_engine_adapter.py` at each epoch count with the same
-`--seed 42 --test-frac 0.2 --val-frac 0.25` flags.
 
 ---
 
@@ -339,9 +331,10 @@ Then retrain the ENGINE adapter on top of the new checkpoint.
 
 | File | Description |
 |------|-------------|
-| `runs/solubility_adapter_tutorial.pt` | Trained ENGINE adapter weights + normalisation statistics |
-| `scripts/train_engine_adapter.py` | Training script |
-| `scripts/predict_solubility.py` | Inference script |
+| `runs/engine_solubility.pt` | Trained ENGINE adapter weights + normalisation statistics |
+| `configs/adapt_engine_solubility.yaml` | Training config for this tutorial |
+| `configs/adapt_engine_epoch_sweep.yaml` | Epoch sweep config (10 / 50 / 100 / 200 / 400 epochs) |
+| `scripts/predict_property.py` | Inference script |
 | `qchem_gnn/engine_adapter.py` | `EngineAdapterHead`, `extract_intermediate_embeddings`, `save/load_adapter`, `predict` |
 
 The adapter file is self-contained: it stores the backbone checkpoint path so
