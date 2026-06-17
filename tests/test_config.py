@@ -549,3 +549,12 @@ def test_contrastive_pretrain_config_resolves():
     assert namespace.temperature == 0.1
     assert namespace.hidden_dim_3d == 16
     assert namespace.output == "runs/contrastive.pt"
+
+
+def test_minimal_contrastive_yaml_resolves():
+    path = Path("configs/minimal_contrastive_pretrain.yaml")
+    resolved = resolve_config(load_yaml_config(path))
+
+    assert resolved["command"] == "contrastive-pretrain"
+    assert resolved["contrastive"]["batch_size"] >= 2
+    assert resolved["outputs"]["checkpoint"]
