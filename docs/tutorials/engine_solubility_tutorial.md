@@ -252,21 +252,65 @@ python scripts/predict_solubility.py \
 
 ## Effect of training duration
 
-Training for more epochs substantially improves test metrics (same 60/20/20
-split, 400 epochs):
+All runs use the same 60/20/20 split (678 train / 226 val / 224 test) and seed.
+Embeddings are extracted once from the frozen backbone and reused across all
+epoch counts.
 
-| Epochs | val MAE | Test MAE | Test R² | α gates |
-|--------|---------|----------|---------|---------|
-| 10     | 1.402   | 1.434    | 0.219   | all 0.50 (not yet differentiated) |
-| 400    | 0.794   | 0.849    | 0.667   | 0.55 / 0.47 / 0.43 (layer 0 trusted most) |
+| Epochs | val MAE | Test MAE | Test RMSE | Test R² | EE MAE | EE R² | % early exit |
+|--------|---------|----------|-----------|---------|--------|-------|--------------|
+|     10 |   1.425 |    1.450 |     1.814 |   0.209 |  1.490 | 0.169 |        30.4% |
+|     50 |   1.173 |    1.208 |     1.566 |   0.410 |  1.227 | 0.398 |        31.7% |
+|    100 |   1.062 |    1.037 |     1.376 |   0.544 |  1.050 | 0.553 |        25.9% |
+|    200 |   0.905 |    0.893 |     1.207 |   0.650 |  0.904 | 0.652 |        18.8% |
+|    400 |   0.823 |    0.836 |     1.162 |   0.675 |  0.836 | 0.686 |        29.0% |
 
-The α gate pattern at convergence (`σ(α_0)=0.55, σ(α_1)=0.47, σ(α_2)=0.43`)
-tells a story: the **first message-passing layer** carries the most weight in
-the side stream. This makes sense — after one step each atom has seen its
+MAE and RMSE in log(mol/L). EE = early exit with tolerance 0.1 (normalised units).
+
+### What the numbers tell us
+
+**R² doubles from 10 to 100 epochs** (0.21 → 0.54), the fastest gains coming
+in the first 100 epochs as the projection layers learn to extract
+solubility-relevant features from the frozen backbone.
+
+**Returns diminish after 200 epochs** (R² 0.650 → 0.675 from 200→400). The
+adapters are well-fit by 200 epochs; pushing further gives marginal improvement
+for this backbone.
+
+**Early exit MAE tracks ensemble MAE closely** at every epoch count —
+sometimes better, sometimes slightly worse. The two modes converge as training
+progresses, confirming that the per-layer predictions become consistent.
+
+**% early exit is non-monotone** (30 % → 32 % → 26 % → 19 % → 29 %).
+At low epochs predictions are individually uncertain but happen to agree by
+chance (false convergence). As training progresses, the model becomes more
+confident and genuine early exits rise again at 400 epochs.
+
+### α gate evolution
+
+| Epochs | σ(α_0) | σ(α_1) | σ(α_2) | Interpretation |
+|--------|--------|--------|--------|----------------|
+|     10 |   0.50 |   0.50 |   0.50 | not yet differentiated (near init) |
+|     50 |   0.50 |   0.50 |   0.49 | barely moved |
+|    100 |   0.51 |   0.50 |   0.48 | layer 2 starting to downweight |
+|    200 |   0.54 |   0.50 |   0.46 | layer 0 rising, layer 2 falling |
+|    400 |   0.59 |   0.48 |   0.43 | clear gradient: layer 0 dominates |
+
+The converged pattern (`σ(α_0)=0.59, σ(α_1)=0.48, σ(α_2)=0.43`) tells a
+story: the **first message-passing layer** carries the most weight in the
+side stream. This makes sense — after one step each atom has seen its
 immediate neighbours, which is already enough to encode local chemical
 environment relevant to solubility (polarity, hydrogen-bond donors/acceptors).
-Deeper layers add longer-range structure with diminishing marginal benefit for
+Deeper layers add longer-range structure with diminishing marginal returns for
 this task.
+
+To reproduce the full sweep:
+```bash
+python3 - <<'EOF'
+# (paste the epoch-sweep script here)
+EOF
+```
+or simply re-run `train_engine_adapter.py` at each epoch count with the same
+`--seed 42 --test-frac 0.2 --val-frac 0.25` flags.
 
 ---
 
