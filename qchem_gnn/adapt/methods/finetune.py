@@ -149,6 +149,6 @@ class FinetuneMethod:
             raw = np.concatenate(chunks)
             preds = postprocess(task, raw, norm)
         else:
-            n_targets = len(s["label_norm"]["mu"]) if s.get("label_norm") else 1
+            n_targets = s["head_config"]["output_dim"]
             preds = np.empty((0, n_targets))
         return preds, valid_idx

@@ -105,21 +105,43 @@ def main() -> None:
         smiles_list, adapter_path,
         mode=args.mode, exit_tolerance=args.exit_tol, batch_size=args.batch,
     )
-    # preds is [N_valid, T]; for single-target take column 0 for the display table
-    if preds.ndim == 2 and preds.shape[1] == 1:
-        preds = preds[:, 0]
+    # preds is [N_valid, T]; determine target column names from adapter metadata
+    state_meta = torch.load(adapter_path, map_location="cpu", weights_only=False)
+    saved_target_names = state_meta.get("target_names")
+
+    multi_target = preds.ndim == 2 and preds.shape[1] > 1
+    if not multi_target:
+        # single-target: flatten to 1D for simple display
+        preds_1d = preds[:, 0] if preds.ndim == 2 else preds
+        target_label = info.get("target_col", "prediction") if info else "prediction"
+    else:
+        # multi-target: use saved target names or generic col names
+        n_t = preds.shape[1]
+        if saved_target_names and len(saved_target_names) == n_t:
+            target_cols = saved_target_names
+        else:
+            target_cols = [f"pred_{i}" for i in range(n_t)]
 
     # ── Output ─────────────────────────────────────────────────────────────────
-    target_label = info.get("target_col", "prediction") if info else "prediction"
     valid_set = set(valid_idx)
     rows = []
     vi = 0
-    for i, smi in enumerate(smiles_list):
-        if i in valid_set:
-            rows.append({"smiles": smi, target_label: round(float(preds[vi]), 4)})
-            vi += 1
-        else:
-            rows.append({"smiles": smi, target_label: None})
+    if not multi_target:
+        for i, smi in enumerate(smiles_list):
+            if i in valid_set:
+                rows.append({"smiles": smi, target_label: round(float(preds_1d[vi]), 4)})
+                vi += 1
+            else:
+                rows.append({"smiles": smi, target_label: None})
+    else:
+        for i, smi in enumerate(smiles_list):
+            if i in valid_set:
+                row = {"smiles": smi}
+                row.update({col: round(float(preds[vi, t]), 4) for t, col in enumerate(target_cols)})
+                rows.append(row)
+                vi += 1
+            else:
+                rows.append({"smiles": smi, **{col: None for col in target_cols}})
     result_df = pd.DataFrame(rows)
 
     if args.output:
@@ -127,13 +149,25 @@ def main() -> None:
         print(f"  Saved {len(result_df)} rows → {args.output}")
     else:
         col_w = min(50, max(len(s) for s in smiles_list) + 2)
-        print(f"\n  {'SMILES':<{col_w}}  {target_label}")
-        print("  " + "-" * (col_w + len(target_label) + 4))
-        for _, row in result_df.iterrows():
-            val = f"{row[target_label]:+.3f}" if row[target_label] is not None else "FAILED"
-            print(f"  {str(row['smiles']):<{col_w}}  {val}")
+        if not multi_target:
+            print(f"\n  {'SMILES':<{col_w}}  {target_label}")
+            print("  " + "-" * (col_w + len(target_label) + 4))
+            for _, row in result_df.iterrows():
+                val = f"{row[target_label]:+.3f}" if row[target_label] is not None else "FAILED"
+                print(f"  {str(row['smiles']):<{col_w}}  {val}")
+        else:
+            header = "  ".join(f"{c:>10}" for c in target_cols)
+            print(f"\n  {'SMILES':<{col_w}}  {header}")
+            print("  " + "-" * (col_w + 12 * len(target_cols) + 4))
+            for _, row in result_df.iterrows():
+                vals = "  ".join(
+                    f"{row[c]:>+10.3f}" if row[c] is not None else f"{'FAILED':>10}"
+                    for c in target_cols
+                )
+                print(f"  {str(row['smiles']):<{col_w}}  {vals}")
 
-    n_fail = result_df[target_label].isna().sum()
+    fail_col = target_label if not multi_target else target_cols[0]
+    n_fail = result_df[fail_col].isna().sum()
     if n_fail:
         print(f"\n  {n_fail} SMILES could not be parsed.")
 
