@@ -74,6 +74,10 @@ def load_dataset(csv, smiles_col, targets, task: str) -> AdaptData:
         keep_rows.append(i)
 
     targets_arr = raw_y[keep_rows] if keep_rows else np.empty((0, len(target_cols)), dtype=np.float32)
+    if task == "classification" and targets_arr.size:
+        uniq = np.unique(targets_arr)
+        if not np.all(np.isin(uniq, [0.0, 1.0])):
+            raise ValueError("classification targets must be binary 0/1 per column")
     return AdaptData(
         smiles=smiles, graphs=graphs, targets=targets_arr,
         target_names=target_cols, valid_idx=valid_idx, task=task,

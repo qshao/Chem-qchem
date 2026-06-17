@@ -9,8 +9,8 @@ from torch import nn
 
 from ..backbone import build_graphs, embed_per_layer, load_backbone
 from ..data import LabelNormalizer
-from ..metrics import regression_metrics
-from .base import LoadedAdapter, TrainResult
+from ..metrics import classification_metrics, regression_metrics
+from .base import LoadedAdapter, TrainResult, make_loss, postprocess
 
 
 class EngineAdapterHead(nn.Module):
@@ -83,23 +83,34 @@ class EngineMethod:
         torch.manual_seed(seed)
         h_dim = model_config["hidden_dim"]
         n_steps = model_config["num_message_passing_steps"]
+        task = data.task
         y = data.targets
         T = y.shape[1]
 
         layer_embs = embed_per_layer(data.graphs, backbone)
-        norm = LabelNormalizer.fit(y[train_idx])
+
+        if task == "classification":
+            norm = None
+        else:
+            norm = LabelNormalizer.fit(y[train_idx])
+
+        def prep_y(arr):
+            return arr if task == "classification" else norm.transform(arr)
+
+        def eval_pred(raw):
+            return postprocess(task, raw, norm)
 
         tr = [torch.as_tensor(emb[train_idx], dtype=torch.float32) for emb in layer_embs]
         va = [torch.as_tensor(emb[val_idx], dtype=torch.float32) for emb in layer_embs] if val_idx else None
         te = [torch.as_tensor(emb[test_idx], dtype=torch.float32) for emb in layer_embs] if test_idx else None
-        ytr = torch.as_tensor(norm.transform(y[train_idx]), dtype=torch.float32)
+        ytr = torch.as_tensor(prep_y(y[train_idx]), dtype=torch.float32)
 
         adapter = EngineAdapterHead(h_dim, n_steps, output_dim=T)
         epochs = int(cfg.training.get("epochs", 400))
         lr = float(cfg.training.get("head_lr", cfg.training.get("lr", 3e-3)))
         opt = torch.optim.Adam(adapter.parameters(), lr=lr)
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=1e-5)
-        crit = nn.MSELoss()
+        crit = make_loss(task)
 
         best_val = float("inf")
         best_state = {k: v.clone() for k, v in adapter.state_dict().items()}
@@ -110,26 +121,35 @@ class EngineMethod:
             loss.backward(); opt.step(); sched.step()
             if val_idx:
                 adapter.eval()
-                vp = norm.inverse(adapter.predict_ensemble(va))
-                vmae = float(np.mean(np.abs(vp - y[val_idx])))
-                if vmae < best_val:
-                    best_val = vmae
+                raw_val = adapter.predict_ensemble(va)
+                vp = eval_pred(raw_val)
+                if task == "classification":
+                    val_score = 1.0 - classification_metrics(y[val_idx], vp)["auc"]
+                else:
+                    val_score = float(np.mean(np.abs(vp - y[val_idx])))
+                if val_score < best_val:
+                    best_val = val_score
                     best_state = {k: v.clone() for k, v in adapter.state_dict().items()}
 
         adapter.load_state_dict(best_state); adapter.eval()
         test_metrics = {}
         if test_idx:
-            tp = norm.inverse(adapter.predict_ensemble(te))
-            test_metrics = regression_metrics(y[test_idx], tp)
+            raw_te = adapter.predict_ensemble(te)
+            tp = eval_pred(raw_te)
+            if task == "classification":
+                test_metrics = classification_metrics(y[test_idx], tp)
+            else:
+                test_metrics = regression_metrics(y[test_idx], tp)
 
         payload = {
             "adapter_type": "engine",
+            "task": task,
             "adapter_state": adapter.state_dict(),
             "hidden_dim": h_dim, "num_layers": n_steps, "output_dim": T,
-            "label_norm": norm.to_dict(),
+            "label_norm": None if norm is None else norm.to_dict(),
         }
         return TrainResult(payload=payload, test_metrics=test_metrics,
-                           log={"best_val_mae": round(best_val, 4)})
+                           log={"best_val_score": round(best_val, 4)})
 
     def save(self, path: Path, result: TrainResult, meta: dict) -> None:
         path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,17 +165,19 @@ class EngineMethod:
     @staticmethod
     def predict(loaded: LoadedAdapter, smiles: list[str], **kw) -> tuple[np.ndarray, list[int]]:
         s = loaded.payload
+        task = s.get("task", "regression")
         model, _ = load_backbone(s["backbone_ckpt"])
         adapter = EngineAdapterHead(s["hidden_dim"], s["num_layers"], output_dim=s["output_dim"])
         adapter.load_state_dict(s["adapter_state"]); adapter.eval()
-        norm = LabelNormalizer.from_dict(s["label_norm"])
+        norm = None if task == "classification" else LabelNormalizer.from_dict(s["label_norm"])
         graphs, valid_idx = build_graphs(smiles)
         layer_embs = embed_per_layer(graphs, model, batch_size=kw.get("batch_size", 256))
         tensors = [torch.as_tensor(emb, dtype=torch.float32) for emb in layer_embs]
         mode = kw.get("mode", "ensemble")
         if mode == "early_exit":
-            tol = kw.get("exit_tolerance", 0.05) / float(np.mean(norm.sigma))
-            pred_norm, _ = adapter.predict_early_exit(tensors, tolerance=tol)
+            sigma_scale = float(np.mean(norm.sigma)) if norm is not None else 1.0
+            tol = kw.get("exit_tolerance", 0.05) / sigma_scale
+            raw, _ = adapter.predict_early_exit(tensors, tolerance=tol)
         else:
-            pred_norm = adapter.predict_ensemble(tensors)
-        return norm.inverse(pred_norm), valid_idx
+            raw = adapter.predict_ensemble(tensors)
+        return postprocess(task, raw, norm), valid_idx

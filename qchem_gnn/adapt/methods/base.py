@@ -10,6 +10,16 @@ import torch
 from torch import nn
 
 
+def make_loss(task: str) -> nn.Module:
+    return nn.BCEWithLogitsLoss() if task == "classification" else nn.MSELoss()
+
+
+def postprocess(task: str, raw: np.ndarray, norm) -> np.ndarray:
+    if task == "classification":
+        return 1.0 / (1.0 + np.exp(-raw))   # sigmoid
+    return norm.inverse(raw)
+
+
 class MLPHead(nn.Module):
     def __init__(self, input_dim: int, output_dim: int = 1,
                  hidden_dims: tuple[int, ...] = (128, 64), dropout: float = 0.1):
