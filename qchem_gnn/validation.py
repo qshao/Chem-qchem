@@ -132,7 +132,7 @@ def aggregate_results(extrinsic_rows: list[dict], intrinsic_rows: list[dict],
         if not arms:
             arms = list(ARMS)
     if comparisons is None:
-        comparisons = _DEFAULT_COMPARISONS
+        comparisons = list(_DEFAULT_COMPARISONS)
 
     methods = sorted({r["method"] for r in extrinsic_rows})
     extrinsic: dict = {}

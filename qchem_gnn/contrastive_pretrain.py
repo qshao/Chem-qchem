@@ -200,10 +200,12 @@ def contrastive_pretrain_on_dataset(
                             var_weight=vicreg_var_weight,
                             cov_weight=vicreg_cov_weight,
                         )
-                    else:
+                    elif contrastive_loss == "infonce":
                         contrastive = info_nce_contrastive_loss(
                             view_2d, view_3d, temperature=temperature
                         )
+                    else:
+                        raise ValueError(f"unknown contrastive_loss: {contrastive_loss!r}")
 
             total = (
                 supervised_weight * supervised

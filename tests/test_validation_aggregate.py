@@ -69,7 +69,7 @@ def test_render_report_contains_sections():
     text = render_report(aggregate_results(rows, intr))
     assert "Extrinsic" in text
     assert "Intrinsic" in text
-    assert "Verdict" in text
+    assert "Verdicts" in text
 
 
 def test_multiple_comparisons_produce_multiple_verdicts():
