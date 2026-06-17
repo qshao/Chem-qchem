@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 from .boltzmann import boltzmann_average
-from .conformer import ConformerEncoderBatch, pool_conformers_to_molecules
+from .conformer import ConformerEncoderBatch
 from .encoder3d import Conformer3DEncoder
 from .graph import GraphBatch
 from .losses import compute_multitask_loss, info_nce_contrastive_loss
