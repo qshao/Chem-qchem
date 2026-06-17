@@ -32,6 +32,8 @@ The default workflow is intentionally small and fast so you can validate the pip
 - `torch`
 - `rdkit`
 - `pyyaml`
+- `scikit-learn`
+- `scipy`
 - `pytest` for tests
 
 If you use the HDF5-backed quantum targets, you also need `h5py`.
@@ -44,7 +46,7 @@ From the project root:
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install numpy pandas torch pyyaml rdkit-pypi pytest h5py
+python -m pip install numpy pandas torch pyyaml rdkit scikit-learn scipy pytest h5py
 ```
 
 If `rdkit-pypi` is not available on your platform, install RDKit through conda instead and keep the rest of the dependencies in the virtual environment.
@@ -174,6 +176,11 @@ Training and pretraining checkpoints store:
 - target normalization
 - dataset and split metadata
 - run metadata, including a run ID and git commit when available
+
+## Tutorials
+
+- [Getting started: environment setup, training, and inference](docs/tutorials/getting_started.md) — full walkthrough from fresh checkout to property predictions
+- [Predicting solubility with the ENGINE adapter](docs/tutorials/engine_solubility_tutorial.md) — deep dive on the ENGINE side-structure method with epoch-sweep comparison
 
 ## Notes
 
