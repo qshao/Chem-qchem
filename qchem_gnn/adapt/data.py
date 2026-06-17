@@ -31,8 +31,10 @@ def detect_smiles_column(df: pd.DataFrame, smiles_col: str | None) -> str:
 
 
 def detect_target_columns(df: pd.DataFrame, targets, smiles_col: str) -> list[str]:
+    if isinstance(targets, list) and len(targets) == 0:
+        raise ValueError("targets list must not be empty")
     if targets and targets != "auto":
-        cols = list(targets)
+        cols = [targets] if isinstance(targets, str) else list(targets)
         missing = [c for c in cols if c not in df.columns]
         if missing:
             raise ValueError(f"target columns not found: {missing}")
@@ -53,7 +55,7 @@ def load_dataset(csv, smiles_col, targets, task: str) -> AdaptData:
     df = pd.read_csv(csv)
     smiles_col = detect_smiles_column(df, smiles_col)
     target_cols = detect_target_columns(df, targets, smiles_col)
-    df = df[[smiles_col, *target_cols]].dropna()
+    df = df[[smiles_col, *target_cols]].dropna().reset_index(drop=True)
 
     raw_smiles = df[smiles_col].tolist()
     raw_y = df[target_cols].to_numpy(dtype=np.float32)
