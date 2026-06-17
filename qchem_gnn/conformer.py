@@ -46,6 +46,9 @@ def pool_conformer_embeddings(
     if mode in {"energy", "weighted"}:
         if conformer_energy is None:
             raise ValueError("conformer_energy is required for energy-weighted pooling")
+        # Note: this uses softmax(-energy) without kT scaling, unlike boltzmann_average()
+        # in boltzmann.py which applies the physically correct kT denominator.
+        # This branch is not used by the contrastive trainer (which uses _boltzmann_pool_molecules).
         weights = torch.softmax(-conformer_energy.to(conformer_embeddings.dtype), dim=0)
         return (conformer_embeddings * weights.unsqueeze(-1)).sum(dim=0)
 
