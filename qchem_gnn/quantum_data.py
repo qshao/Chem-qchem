@@ -30,6 +30,19 @@ def _as_tensor(value) -> torch.Tensor:
     return torch.as_tensor(np.asarray(value), dtype=torch.float32)
 
 
+def _conformer_coords_from_geometry(geometry: dict, num_nodes: int) -> list[torch.Tensor] | None:
+    conformers = geometry.get("conformers")
+    if not conformers:
+        return None
+    coords = []
+    for conformer in conformers:
+        tensor = _as_tensor(conformer)
+        if tensor.ndim != 2 or tensor.shape[0] != num_nodes or tensor.shape[1] != 3:
+            return None
+        coords.append(tensor)
+    return coords or None
+
+
 def _scalarize(value) -> float:
     tensor = _as_tensor(value)
     if tensor.numel() == 1:
@@ -230,6 +243,8 @@ def load_quantum_zinc_dataset(
                 aux_target = None
                 if aux_available:
                     aux_target = torch.tensor([float(row.logP), float(row.qed), float(row.SAS)], dtype=torch.float32)
+                conformer_coords = _conformer_coords_from_geometry(geometry, graph.num_nodes)
+                conformer_energies = None  # energies require HDF5 results; mean pooling is used otherwise
                 examples.append(
                     MinimalQuantumExample(
                         mol_id=mol_id,
@@ -241,6 +256,8 @@ def load_quantum_zinc_dataset(
                         edge_target=edge_target,
                         graph_target=graph_target,
                         aux_target=aux_target,
+                        conformer_coords=conformer_coords,
+                        conformer_energies=conformer_energies,
                     )
                 )
             except Exception:

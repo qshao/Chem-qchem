@@ -187,3 +187,37 @@ def test_load_quantum_zinc_dataset_aggregates_fake_hdf5_targets(tmp_path):
     assert example.edge_target.shape == (8, 1)
     assert torch.allclose(example.edge_target, torch.full((8, 1), 1.5))
     assert torch.allclose(example.graph_target, torch.tensor([-1.5, 4.5]))
+
+
+import pickle
+
+import numpy as np
+import pandas as pd
+import torch
+
+from qchem_gnn.minimal import load_minimal_zinc_dataset
+
+
+def test_dataset_surfaces_conformer_coordinates(tmp_path):
+    csv_path = tmp_path / "subset_000.csv"
+    geo_path = tmp_path / "coords_000.pkl"
+    pd.DataFrame([{"smiles": "C", "logP": 0.1, "qed": 0.2, "SAS": 0.3}]).to_csv(csv_path, index=False)
+    pickle.dump(
+        {
+            "subset_0_idx_0": {
+                "smiles": "C",
+                "charge": 0,
+                "atomic_nums": [6, 1, 1, 1, 1],
+                "conformers": [np.zeros((5, 3), dtype=np.float32), np.ones((5, 3), dtype=np.float32)],
+            }
+        },
+        geo_path.open("wb"),
+    )
+
+    dataset = load_minimal_zinc_dataset(csv_path, geo_path, limit=1)
+    example = dataset.examples[0]
+
+    assert example.conformer_coords is not None
+    assert len(example.conformer_coords) == 2
+    assert example.conformer_coords[0].shape == (example.graph.num_nodes, 3)
+    assert isinstance(example.conformer_coords[0], torch.Tensor)

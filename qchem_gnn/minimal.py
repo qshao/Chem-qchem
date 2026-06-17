@@ -22,6 +22,8 @@ class MinimalQuantumExample:
     edge_target: torch.Tensor
     graph_target: torch.Tensor
     aux_target: torch.Tensor | None = None
+    conformer_coords: list[torch.Tensor] | None = None
+    conformer_energies: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
