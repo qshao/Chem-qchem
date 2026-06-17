@@ -88,3 +88,43 @@ def info_nce_contrastive_loss(
     loss_ab = F.cross_entropy(logits, labels)
     loss_ba = F.cross_entropy(logits.t(), labels)
     return 0.5 * (loss_ab + loss_ba)
+
+
+def _off_diagonal(matrix: torch.Tensor) -> torch.Tensor:
+    n = matrix.shape[0]
+    return matrix.flatten()[:-1].reshape(n - 1, n + 1)[:, 1:].flatten()
+
+
+def vicreg_loss(
+    z_a: torch.Tensor,
+    z_b: torch.Tensor,
+    *,
+    sim_weight: float = 25.0,
+    var_weight: float = 25.0,
+    cov_weight: float = 1.0,
+    gamma: float = 1.0,
+    eps: float = 1e-4,
+) -> torch.Tensor:
+    if z_a.shape != z_b.shape:
+        raise ValueError("z_a and z_b must have the same shape")
+    if z_a.shape[0] < 2:
+        raise ValueError("vicreg loss needs at least 2 examples for variance/covariance statistics")
+
+    batch, dim = z_a.shape
+
+    # Invariance: pull the two views together.
+    inv = F.mse_loss(z_a, z_b)
+
+    # Variance: hinge keeps each dimension's batch std above gamma (anti-collapse).
+    std_a = torch.sqrt(z_a.var(dim=0) + eps)
+    std_b = torch.sqrt(z_b.var(dim=0) + eps)
+    var = torch.relu(gamma - std_a).mean() + torch.relu(gamma - std_b).mean()
+
+    # Covariance: decorrelate dimensions via the off-diagonal of the empirical covariance.
+    za_c = z_a - z_a.mean(dim=0)
+    zb_c = z_b - z_b.mean(dim=0)
+    cov_a = (za_c.t() @ za_c) / (batch - 1)
+    cov_b = (zb_c.t() @ zb_c) / (batch - 1)
+    cov = _off_diagonal(cov_a).pow(2).sum() / dim + _off_diagonal(cov_b).pow(2).sum() / dim
+
+    return sim_weight * inv + var_weight * var + cov_weight * cov
