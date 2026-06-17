@@ -1,0 +1,30 @@
+command: contrastive-pretrain
+
+dataset:
+  dataset_root: zinc-250k
+  subset_ids: [0]
+  limit_per_shard: 32
+  use_results: false
+
+model:
+  hidden_dim: 64
+  message_passing_steps: 3
+
+training:
+  epochs: 50
+  learning_rate: 0.005
+
+contrastive:
+  batch_size: 16
+  supervised_weight: 1.0
+  contrastive_weight: 1.0
+  temperature: 0.07
+  hidden_dim_3d: 64
+  num_rbf: 16
+  cutoff: 5.0
+  message_passing_steps_3d: 3
+  conformer_pool_mode: mean
+  seed: 42
+
+outputs:
+  checkpoint: runs/example_contrastive.pt
