@@ -50,14 +50,14 @@ class MlpHeadMethod:
                        hidden_dims=tuple(cfg.adapter.get("hidden_dims", (128, 64))),
                        dropout=float(cfg.adapter.get("dropout", 0.1)))
         epochs = int(cfg.training.get("epochs", 300))
-        lr = float(cfg.training.get("head_lr", 1e-3))
+        lr = float(cfg.training.get("head_lr", cfg.training.get("lr", 1e-3)))
         bs = int(cfg.training.get("batch_size", 128))
         patience = int(cfg.training.get("patience", 40))
         opt = torch.optim.Adam(head.parameters(), lr=lr, weight_decay=1e-5)
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=lr * 0.01)
         crit = make_loss(task)
 
-        best_val, best_state, wait = float("inf"), {k: v.clone() for k, v in head.state_dict().items()}, 0
+        best_val, best_state, wait = float("inf"), None, 0
         n = len(Xtr)
         for _ in range(epochs):
             head.train()
@@ -86,7 +86,8 @@ class MlpHeadMethod:
                     if wait >= patience:
                         break
 
-        head.load_state_dict(best_state)
+        if best_state is not None:
+            head.load_state_dict(best_state)
         head.eval()
         test_metrics = {}
         if Xte is not None:

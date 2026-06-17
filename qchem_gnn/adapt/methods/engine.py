@@ -113,7 +113,9 @@ class EngineMethod:
         crit = make_loss(task)
 
         best_val = float("inf")
-        best_state = {k: v.clone() for k, v in adapter.state_dict().items()}
+        best_state = None
+        patience = int(cfg.training.get("patience", 30))
+        wait = 0
         for _ in range(epochs):
             adapter.train()
             opt.zero_grad()
@@ -129,9 +131,16 @@ class EngineMethod:
                     val_score = float(np.mean(np.abs(vp - y[val_idx])))
                 if val_score < best_val:
                     best_val = val_score
+                    wait = 0
                     best_state = {k: v.clone() for k, v in adapter.state_dict().items()}
+                else:
+                    wait += 1
+                    if wait >= patience:
+                        break
 
-        adapter.load_state_dict(best_state); adapter.eval()
+        if best_state is not None:
+            adapter.load_state_dict(best_state)
+        adapter.eval()
         test_metrics = {}
         if test_idx:
             raw_te = adapter.predict_ensemble(te)

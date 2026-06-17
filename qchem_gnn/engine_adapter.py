@@ -19,16 +19,24 @@ def extract_intermediate_embeddings(smiles_list, model, batch_size=256):
 
 def load_adapter(path):
     loaded = EngineMethod.load(path)
+    label_norm_raw = loaded.payload.get("label_norm")
+    if label_norm_raw is not None:
+        meta_label_mu = label_norm_raw["mu"][0]
+        meta_label_sig = label_norm_raw["sigma"][0]
+    else:
+        meta_label_mu = None
+        meta_label_sig = None
     meta = {
-        "label_mu": loaded.payload["label_norm"]["mu"][0],
-        "label_sig": loaded.payload["label_norm"]["sigma"][0],
+        "label_mu": meta_label_mu,
+        "label_sig": meta_label_sig,
         "layer_scalers": [(np.array(mu), np.array(sig)) for mu, sig in loaded.payload.get("layer_scalers", [])],
-        "backbone_checkpoint": loaded.payload["backbone_ckpt"],
+        "backbone_checkpoint": loaded.payload.get("backbone_ckpt", ""),
         "training_info": loaded.payload.get("training_info", {}),
     }
     adapter = EngineAdapterHead(loaded.payload["hidden_dim"], loaded.payload["num_layers"],
                                 output_dim=loaded.payload["output_dim"])
-    adapter.load_state_dict(loaded.payload["adapter_state"])
+    adapter_state = loaded.payload.get("adapter_state") or loaded.payload.get("adapter_state_dict")
+    adapter.load_state_dict(adapter_state)
     adapter.eval()
     return adapter, meta
 
@@ -45,13 +53,13 @@ def save_adapter(path, adapter, layer_scalers, label_mu, label_sig, backbone_che
     import torch
     state = {
         "adapter_type": "engine",
-        "adapter_state_dict": adapter.state_dict(),
+        "adapter_state": adapter.state_dict(),
         "hidden_dim": adapter.exit_heads[0].in_features,
         "num_layers": adapter.num_layers,
         "layer_scalers": [(mu.tolist(), sig.tolist()) for mu, sig in layer_scalers],
         "label_mu": float(label_mu),
         "label_sig": float(label_sig),
-        "backbone_checkpoint": str(backbone_checkpoint),
+        "backbone_ckpt": str(backbone_checkpoint),
         "training_info": training_info or {},
     }
     path = Path(path)

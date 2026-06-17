@@ -1,11 +1,12 @@
 # qchem_gnn/adapt/sweep.py
 from __future__ import annotations
 
+import copy
 import csv
 import itertools
 from pathlib import Path
 
-from .config import AdaptConfig, resolve_adapt_config, to_raw_dict
+from .config import AdaptConfig, _deep_merge, resolve_adapt_config, to_raw_dict
 
 
 def _nest(dotted: str, value):
@@ -18,16 +19,6 @@ def _nest(dotted: str, value):
     return out
 
 
-def _merge(a: dict, b: dict) -> dict:
-    out = dict(a)
-    for k, v in b.items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _merge(out[k], v)
-        else:
-            out[k] = v
-    return out
-
-
 def expand_grid(grid: dict[str, list]) -> list[dict]:
     """Return the Cartesian product of a sweep grid as a list of nested override dicts."""
     keys = list(grid)
@@ -35,7 +26,7 @@ def expand_grid(grid: dict[str, list]) -> list[dict]:
     for combo in itertools.product(*(grid[k] for k in keys)):
         override: dict = {}
         for k, v in zip(keys, combo):
-            override = _merge(override, _nest(k, v))
+            override = _deep_merge(override, _nest(k, v))
         cells.append(override)
     return cells
 
@@ -77,11 +68,11 @@ def run_sweep(cfg: AdaptConfig) -> list[dict]:
 
     rows: list[dict] = []
     for i, override in enumerate(cells):
-        raw = _merge(base_raw, override)
+        raw = _deep_merge(copy.deepcopy(base_raw), override)
         # Give each cell a unique adapter output path to avoid collisions
         if base_raw["outputs"].get("adapter"):
             stem = Path(base_raw["outputs"]["adapter"])
-            raw = _merge(raw, {"outputs": {"adapter": str(stem.with_name(f"{stem.stem}_cell{i}{stem.suffix}"))}})
+            raw = _deep_merge(raw, {"outputs": {"adapter": str(stem.with_name(f"{stem.stem}_cell{i}{stem.suffix}"))}})
         cell_cfg = resolve_adapt_config(raw)
         summary = run(cell_cfg)
         flat_over = dict(_flat_items(override))
