@@ -200,6 +200,7 @@ def save_adapter(
 ) -> None:
     """Save adapter weights + normalisation statistics to a .pt file."""
     state = {
+        "adapter_type": "engine",
         "adapter_state_dict": adapter.state_dict(),
         "hidden_dim": adapter.exit_heads[0].in_features,
         "num_layers": adapter.num_layers,

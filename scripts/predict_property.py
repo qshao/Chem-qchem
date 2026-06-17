@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""
+Predict a molecular property using any saved adapter.
+
+Supports all three adaptation methods (auto-detected from the adapter file):
+  mlp_head   — frozen backbone + MLP head
+  finetune   — fine-tuned backbone + MLP head
+  engine     — ENGINE side-structure adapter
+
+Usage:
+  # Predict directly from SMILES strings:
+  python scripts/predict_property.py \\
+      --adapter runs/mlp_head_solubility.pt \\
+      "CCO" "c1ccccc1" "CC(=O)O"
+
+  # Predict from a CSV and save results:
+  python scripts/predict_property.py \\
+      --adapter runs/finetune_solubility.pt \\
+      --csv molecules.csv \\
+      --smiles-col smiles \\
+      --output predictions.csv
+
+  # ENGINE early-exit mode:
+  python scripts/predict_property.py \\
+      --adapter runs/solubility_adapter.pt \\
+      --mode early_exit \\
+      "CCO" "c1ccccc1"
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+import pandas as pd
+import torch
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from qchem_gnn.adapters import predict
+
+
+def _adapter_summary(adapter_path: Path) -> tuple[str, dict]:
+    """Read adapter_type and training_info without loading model weights."""
+    state = torch.load(adapter_path, map_location="cpu", weights_only=False)
+    return state.get("adapter_type", "engine"), state.get("training_info", {})
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("smiles",       nargs="*", help="SMILES strings to score")
+    parser.add_argument("--adapter",    required=True, help="Path to saved adapter .pt")
+    parser.add_argument("--csv",        default=None,  help="CSV with a SMILES column")
+    parser.add_argument("--smiles-col", default=None,  help="SMILES column name in CSV")
+    parser.add_argument("--output",     default=None,  help="Write predictions to CSV")
+    parser.add_argument("--mode",       default="ensemble",
+                        choices=["ensemble", "early_exit"],
+                        help="Inference mode (ENGINE adapter only)")
+    parser.add_argument("--exit-tol",  type=float, default=0.05,
+                        help="ENGINE early-exit std threshold in normalised units")
+    parser.add_argument("--batch",     type=int,   default=256)
+    args = parser.parse_args()
+
+    # ── Collect SMILES ─────────────────────────────────────────────────────────
+    smiles_list: list[str] = list(args.smiles)
+
+    if args.csv:
+        df = pd.read_csv(args.csv)
+        col = args.smiles_col or next(
+            (c for c in df.columns if c.lower() == "smiles"), df.columns[0]
+        )
+        smiles_list.extend(df[col].dropna().tolist())
+
+    if not smiles_list:
+        print("ERROR: provide SMILES on the command line or via --csv", file=sys.stderr)
+        sys.exit(1)
+
+    # ── Adapter summary ────────────────────────────────────────────────────────
+    adapter_path = Path(args.adapter)
+    adapter_type, info = _adapter_summary(adapter_path)
+
+    method_label = {
+        "mlp_head": "MLP head (frozen backbone)",
+        "finetune": "Fine-tuned backbone + MLP head",
+        "engine":   f"ENGINE side adapter ({args.mode})",
+    }.get(adapter_type, adapter_type)
+
+    print(f"\nAdapter type : {method_label}")
+    if info:
+        print(f"Trained on   : {info.get('dataset', '?')}  "
+              f"({info.get('n_train', '?')} train / {info.get('n_test', '?')} test)")
+        target = info.get("target_col", "property")
+        print(f"Target       : {target}")
+        print(f"Best val MAE : {info.get('best_val_mae', '?')}  "
+              f"Test MAE: {info.get('test_mae', '?')}  "
+              f"R²: {info.get('test_r2', '?')}")
+
+    # ── Predict ────────────────────────────────────────────────────────────────
+    print(f"\nScoring {len(smiles_list)} molecule(s) …")
+
+    # ENGINE needs extra kwargs; other adapters ignore them
+    if adapter_type == "engine":
+        from qchem_gnn.engine_adapter import load_adapter
+        from qchem_gnn.engine_adapter import predict as engine_predict
+        _, meta = load_adapter(adapter_path)
+        preds, valid_idx = engine_predict(
+            smiles_list,
+            backbone_ckpt=meta["backbone_checkpoint"],
+            adapter_path=adapter_path,
+            mode=args.mode,
+            exit_tolerance=args.exit_tol,
+            batch_size=args.batch,
+        )
+    else:
+        preds, valid_idx = predict(smiles_list, adapter_path, batch_size=args.batch)
+
+    # ── Output ─────────────────────────────────────────────────────────────────
+    target_label = info.get("target_col", "prediction") if info else "prediction"
+    valid_set = set(valid_idx)
+    rows = []
+    vi = 0
+    for i, smi in enumerate(smiles_list):
+        if i in valid_set:
+            rows.append({"smiles": smi, target_label: round(float(preds[vi]), 4)})
+            vi += 1
+        else:
+            rows.append({"smiles": smi, target_label: None})
+    result_df = pd.DataFrame(rows)
+
+    if args.output:
+        result_df.to_csv(args.output, index=False)
+        print(f"  Saved {len(result_df)} rows → {args.output}")
+    else:
+        col_w = min(50, max(len(s) for s in smiles_list) + 2)
+        print(f"\n  {'SMILES':<{col_w}}  {target_label}")
+        print("  " + "-" * (col_w + len(target_label) + 4))
+        for _, row in result_df.iterrows():
+            val = f"{row[target_label]:+.3f}" if row[target_label] is not None else "FAILED"
+            print(f"  {str(row['smiles']):<{col_w}}  {val}")
+
+    n_fail = result_df[target_label].isna().sum()
+    if n_fail:
+        print(f"\n  {n_fail} SMILES could not be parsed.")
+
+
+if __name__ == "__main__":
+    main()
