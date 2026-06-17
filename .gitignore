@@ -2,3 +2,8 @@ __pycache__/
 .pytest_cache/
 *.pyc
 zinc-250k/
+data/
+runs/
+record
+scripts/infer.sh
+scripts/train.sh
