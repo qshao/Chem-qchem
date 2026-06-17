@@ -121,6 +121,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     adapt_cmd = subparsers.add_parser("adapt", help="Adapt a frozen/fine-tuned backbone to a property CSV")
     adapt_cmd.add_argument("config", help="YAML config path")
+    adapt_cmd.add_argument(
+        "--override", "-O",
+        nargs="*",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Dotted-key overrides, e.g. training.epochs=100",
+    )
 
     return parser
 
@@ -737,12 +744,33 @@ def run_downstream(args) -> int:
     return 0
 
 
+def _parse_overrides(override_list):
+    result = {}
+    for item in (override_list or []):
+        key, _, val_str = item.partition("=")
+        # try to coerce to int, then float, else keep as str
+        try:
+            val = int(val_str)
+        except ValueError:
+            try:
+                val = float(val_str)
+            except ValueError:
+                val = val_str
+        # set dotted key
+        parts = key.split(".")
+        d = result
+        for p in parts[:-1]:
+            d = d.setdefault(p, {})
+        d[parts[-1]] = val
+    return result
+
+
 def run_adapt(args) -> int:
     from .adapt.config import resolve_adapt_config
     from .adapt.runner import run as run_adapt_single
     from .adapt.sweep import run_sweep
     raw = load_yaml_config(args.config)
-    cfg = resolve_adapt_config(raw)
+    cfg = resolve_adapt_config(raw, overrides=_parse_overrides(args.override))
     if cfg.sweep is not None:
         run_sweep(cfg)
     else:

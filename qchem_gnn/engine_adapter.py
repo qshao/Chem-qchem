@@ -22,7 +22,7 @@ def load_adapter(path):
     meta = {
         "label_mu": loaded.payload["label_norm"]["mu"][0],
         "label_sig": loaded.payload["label_norm"]["sigma"][0],
-        "layer_scalers": [(np.array(mu), np.array(sig)) for mu, sig in loaded.payload["layer_scalers"]],
+        "layer_scalers": [(np.array(mu), np.array(sig)) for mu, sig in loaded.payload.get("layer_scalers", [])],
         "backbone_checkpoint": loaded.payload["backbone_ckpt"],
         "training_info": loaded.payload.get("training_info", {}),
     }
