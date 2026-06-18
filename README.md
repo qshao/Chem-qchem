@@ -196,6 +196,7 @@ Training and pretraining checkpoints store:
 
 - [Getting started: environment setup, training, and inference](docs/tutorials/getting_started.md) — full walkthrough from fresh checkout to property predictions
 - [Predicting solubility with the ENGINE adapter](docs/tutorials/engine_solubility_tutorial.md) — deep dive on the ENGINE side-structure method with epoch-sweep comparison
+- [Scaled pretraining on ZINC-250K](docs/tutorials/scaled_pretraining.md) — preprocess → compact cache → multi-shard training → scaling sweep
 
 ### Solubility benchmark (Delaney ESOL, 1128 molecules, 60/20/20 split)
 
@@ -270,15 +271,28 @@ bash scripts/adapt.sh configs/adapt_mydata.yaml training.epochs=200 training.lr=
 ### Preprocess shards into compact caches
 
 ```bash
-python -m qchem_gnn preprocess \
-  --dataset-root zinc-250k \
-  --subset-ids 0,1,2,...,49 \
-  --cache-dir zinc-250k/compact_cache
+bash scripts/preprocess.sh <dataset_root> <cache_dir> [shard_range]
 ```
 
 Extracts each shard once (skip-if-exists), dropping the large density matrix
 (~6.8 GB/shard → ~90 MB), and attaches a globally stable scaffold key to each
 molecule. Re-running is safe — existing caches are skipped.
+
+```bash
+# First 10 shards (~900 MB)
+bash scripts/preprocess.sh zinc-250k zinc-250k/compact_cache "0-9"
+
+# All 250 shards (~22 GB, hours on first run)
+bash scripts/preprocess.sh zinc-250k zinc-250k/compact_cache "0-249"
+```
+
+Or call the CLI directly for a custom subset:
+```bash
+python -m qchem_gnn preprocess \
+  --dataset-root zinc-250k \
+  --subset-ids 0,1,2,...,49 \
+  --cache-dir zinc-250k/compact_cache
+```
 
 ### Scaling sweep
 
