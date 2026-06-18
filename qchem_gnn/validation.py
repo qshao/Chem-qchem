@@ -386,6 +386,14 @@ def _failed_cell(arm_name, seed, probes, message: str) -> dict:
 
 
 def _load_dataset(pretrain_cfg: dict):
+    if "cache_dir" in pretrain_cfg:
+        from .shard_cache import load_compact_shards
+
+        return load_compact_shards(
+            pretrain_cfg["cache_dir"],
+            list(pretrain_cfg["subset_ids"]),
+        )
+
     from .quantum_data import load_quantum_zinc_subset_range
 
     return load_quantum_zinc_subset_range(

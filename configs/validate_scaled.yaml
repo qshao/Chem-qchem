@@ -1,0 +1,44 @@
+# Full-scale validation: trains the proven backbone from compact shard caches.
+# Build caches first:
+#   python -m qchem_gnn preprocess --dataset-root zinc-250k \
+#     --subset-ids 0,1,2,...,49 --cache-dir zinc-250k/compact_cache
+# Then sweep scale with scripts/scaling_sweep.sh, or run a single point here.
+
+pretrain:
+  cache_dir: zinc-250k/compact_cache
+  subset_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]   # one scale point; sweep overrides this
+  hidden_dim: 64
+  message_passing_steps: 3
+  hidden_dim_3d: 64
+  message_passing_steps_3d: 3
+  epochs: 200
+  learning_rate: 0.001
+  batch_size: 16
+
+arms:
+  quantum_scaffold:
+    teacher_weight: 1.0
+    conformer_pool_mode: energy
+    energy_temperature: 298.15
+    use_scaffold_negmask: true
+
+comparisons: []
+
+seeds: [0, 1, 2]
+holdout:
+  k: 10                # scaffold-disjoint: ~1/10 of scaffolds held out
+
+probes:
+  - method: mlp_head
+  - method: finetune
+
+adapt:
+  dataset: { csv: data/delaney-processed.csv, smiles_col: auto, targets: auto }
+  task: regression
+  adapter: { hidden_dims: [128, 64], dropout: 0.1 }
+  training: { epochs: 300, lr: 1.0e-3, batch_size: 128, patience: 40, seed: 42 }
+  split: { test_frac: 0.2, val_frac: 0.25, seed: 42, stratify: true }
+
+outputs:
+  dir: runs/validate_scaled
+  report: runs/validate_scaled/report
