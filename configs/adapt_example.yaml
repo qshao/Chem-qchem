@@ -1,0 +1,33 @@
+# Adapt a frozen backbone to a new property prediction task.
+# Pass this file to: bash scripts/adapt.sh configs/adapt_example.yaml
+#
+# Override any field at runtime:
+#   bash scripts/adapt.sh configs/adapt_example.yaml training.epochs=200
+
+backbone: checkpoints/backbone_s0.pt   # path to .pt produced by train.sh
+
+dataset:
+  csv: data/my_property.csv            # CSV with SMILES and target column(s)
+  smiles_col: smiles
+  targets: [my_property]               # list of column names to predict
+
+task: regression                       # regression or classification
+
+adapter:
+  hidden_dims: [128, 64]               # MLP head hidden layers
+  dropout: 0.1
+
+training:
+  epochs: 100
+  lr: 1.0e-3
+  batch_size: 32
+  patience: 10                         # early stopping patience (epochs)
+  seed: 42
+
+split:
+  test_frac: 0.1
+  val_frac: 0.1
+  seed: 42
+  stratify: false                      # set true for classification
+
+output: results/

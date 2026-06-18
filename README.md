@@ -209,6 +209,64 @@ Training and pretraining checkpoints store:
 Backbone: contrastive-pretrained GNN on ZINC-250k.
 Reproduce with `python -m qchem_gnn.cli adapt configs/adapt_<method>_solubility.yaml`.
 
+## Production training and inference scripts
+
+`scripts/` contains three ready-to-run bash wrappers for the best configuration
+found in ablation experiments (quantum teacher + scaffold-aware InfoNCE negmask):
+
+### Train backbones
+
+```bash
+bash scripts/train.sh <dataset_root> [output_dir] [seeds]
+```
+
+`dataset_root` must contain `subsets/`, `geometries/`, and `results/`. Trains
+one backbone per seed and writes `backbone_s{N}.pt` files to `output_dir`
+(default `checkpoints/`).
+
+```bash
+# 7-seed run, store in checkpoints/
+bash scripts/train.sh /data/zinc_shard checkpoints "0 1 2 3 4 5 6"
+```
+
+Key hyperparameters baked in: `--epochs 200 --hidden-dim 64 --batch-size 16
+--conformer-pool-mode energy --contrastive-loss infonce --use-scaffold-negmask`.
+Override any flag by editing the script or calling the CLI directly.
+
+### Export embeddings
+
+```bash
+bash scripts/infer.sh <checkpoint.pt> <output.npy>
+```
+
+Loads a trained backbone and writes one embedding vector per molecule as a
+NumPy `.npy` file.
+
+```bash
+bash scripts/infer.sh checkpoints/backbone_s0.pt embeddings_s0.npy
+```
+
+### Adapt to a new property
+
+```bash
+bash scripts/adapt.sh <adapt_config.yaml> [KEY=VALUE ...]
+```
+
+Trains a lightweight MLP adapter on any property CSV. Copy and edit
+`configs/adapt_example.yaml` to point at your backbone and CSV, then run:
+
+```bash
+cp configs/adapt_example.yaml configs/adapt_mydata.yaml
+# edit adapt_mydata.yaml: set backbone, dataset.csv, dataset.targets
+bash scripts/adapt.sh configs/adapt_mydata.yaml
+```
+
+Optional inline overrides (dotted-key syntax):
+
+```bash
+bash scripts/adapt.sh configs/adapt_mydata.yaml training.epochs=200 training.lr=5e-4
+```
+
 ## Notes
 
 - The current model is a 2D graph neural network that learns from quantum-informed supervision during training.

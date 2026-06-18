@@ -3,5 +3,3 @@ __pycache__/
 *.pyc
 zinc-250k/
 record
-scripts/infer.sh
-scripts/train.sh
