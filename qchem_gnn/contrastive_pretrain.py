@@ -276,6 +276,12 @@ def contrastive_pretrain_on_dataset(
         loss_history = list(payload["loss_history"])
         contrastive_loss_history = list(payload["contrastive_loss_history"])
         start_epoch = int(payload["epoch"])
+        if epochs < start_epoch:
+            warnings.warn(
+                f"resume: checkpoint epoch ({start_epoch}) exceeds requested epochs "
+                f"({epochs}); no training will run and the checkpoint model will be returned.",
+                stacklevel=2,
+            )
 
     def _write_checkpoint(completed_epochs: int) -> None:
         _atomic_save_checkpoint(
@@ -417,7 +423,7 @@ def contrastive_pretrain_on_dataset(
         target_normalization=normalization,
         optimizer_state_dict=optimizer.state_dict(),
         epoch=epochs,
-        global_step=epochs * ((num_examples + batch_size - 1) // batch_size),
+        global_step=(epochs - start_epoch) * ((num_examples + batch_size - 1) // batch_size),
         teacher=teacher,
         encoder3d=encoder3d,
     )

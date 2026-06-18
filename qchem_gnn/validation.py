@@ -157,6 +157,8 @@ _DEFAULT_COMPARISONS = [
     {"name": "teacher_vs_baseline", "reference": "baseline", "treatment": "quantum"}
 ]
 
+_CHECKPOINT_KEYS = frozenset({"checkpoint_path", "checkpoint_every", "resume"})
+
 
 def aggregate_results(extrinsic_rows: list[dict], intrinsic_rows: list[dict],
                       arms=None, comparisons=None) -> dict:
@@ -293,7 +295,7 @@ def _pretrain_kwargs(pretrain_cfg: dict, arm_overrides: dict, seed: int) -> dict
         temperature=pretrain_cfg.get("temperature", 0.1),
         seed=seed,
     )
-    kwargs.update(arm_overrides)  # teacher_weight, conformer_pool_mode, energy_temperature
+    kwargs.update({k: v for k, v in arm_overrides.items() if k not in _CHECKPOINT_KEYS})
     return kwargs
 
 
@@ -351,6 +353,8 @@ def run_one_cell(
             return _failed_cell(arm_name, seed, probes, "non-finite backbone weights")
 
         _save_backbone(backbone_path, pretrain_ds, result, pretrain_cfg)
+        if checkpoint_path.exists():
+            checkpoint_path.unlink()
         try:
             props = evaluate_teacher(result.teacher, result.encoder3d, holdout_examples)
         except Exception as exc:  # noqa: BLE001
@@ -360,8 +364,6 @@ def run_one_cell(
         intrinsic_row["properties"] = props
         intrinsic_path.parent.mkdir(parents=True, exist_ok=True)
         intrinsic_path.write_text(json.dumps(props, indent=2))
-        if intrinsic_row["status"] == "ok" and checkpoint_path.exists():
-            checkpoint_path.unlink()
 
     for probe in probes:
         method = probe["method"]
