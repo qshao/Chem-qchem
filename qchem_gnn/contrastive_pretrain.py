@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -166,6 +167,11 @@ def contrastive_pretrain_on_dataset(
                 if full_mask is not None:
                     global_idx = [batch_indices[p] for p in coords_index]
                     batch_mask = full_mask[global_idx][:, global_idx].to(supervised.device)
+                    if batch_mask.all(dim=1).any():
+                        warnings.warn(
+                            "scaffold negmask: at least one molecule has all negatives masked in this batch",
+                            stacklevel=2,
+                        )
                 conformer_batch = ConformerEncoderBatch.from_molecule_conformers(
                     [ex.graph for ex in usable_examples],
                     [ex.conformer_coords for ex in usable_examples],

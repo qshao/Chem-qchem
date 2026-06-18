@@ -86,6 +86,11 @@ def info_nce_contrastive_loss(
     z_b = F.normalize(z_b, dim=-1)
     logits = (z_a @ z_b.t()) / temperature
     if negative_mask is not None:
+        if negative_mask.shape != logits.shape or negative_mask.dtype != torch.bool:
+            raise ValueError(
+                f"negative_mask must be a bool tensor of shape {logits.shape}, "
+                f"got shape={negative_mask.shape} dtype={negative_mask.dtype}"
+            )
         eye = torch.eye(logits.shape[0], dtype=torch.bool, device=logits.device)
         logits = logits.masked_fill(negative_mask & ~eye, float("-inf"))
     labels = torch.arange(z_a.shape[0], device=z_a.device)

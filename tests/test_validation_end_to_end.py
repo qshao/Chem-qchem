@@ -94,4 +94,7 @@ def test_quantum_scaffold_arm(tmp_path):
 
     assert (out_dir / "quantum_scaffold_s0.pt").exists()
     assert len(aggregate["verdicts"]) == 3
+    assert {v["name"] for v in aggregate["verdicts"]} == {
+        "teacher_vs_baseline", "vicreg_vs_infonce", "scaffold_vs_infonce"
+    }
     assert "scaffold_vs_infonce" in (out_dir / "report.md").read_text()

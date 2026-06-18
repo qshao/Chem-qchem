@@ -173,6 +173,7 @@ def _infer_scaffolds(molecule_ids: Iterable[str], smiles: Iterable[str]) -> dict
 
 
 def build_scaffold_negative_mask(examples) -> torch.Tensor:
+    """Return [N, N] CPU bool tensor; True at [i,j] iff i≠j and scaffold[i]==scaffold[j]."""
     n = len(examples)
     ids = [str(i) for i in range(n)]
     smiles = [ex.smiles for ex in examples]
