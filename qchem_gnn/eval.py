@@ -172,6 +172,26 @@ def _infer_scaffolds(molecule_ids: Iterable[str], smiles: Iterable[str]) -> dict
     return scaffolds
 
 
+def build_scaffold_negative_mask(examples) -> torch.Tensor:
+    n = len(examples)
+    ids = [str(i) for i in range(n)]
+    smiles = [ex.smiles for ex in examples]
+    scaffolds = _infer_scaffolds(ids, smiles)
+    groups: dict[str, list[int]] = {}
+    for i, mol_id in enumerate(ids):
+        s = scaffolds[mol_id]
+        groups.setdefault(s, []).append(i)
+    mask = torch.zeros(n, n, dtype=torch.bool)
+    for indices in groups.values():
+        if len(indices) < 2:
+            continue
+        for i in indices:
+            for j in indices:
+                if i != j:
+                    mask[i, j] = True
+    return mask
+
+
 def _dataset_targets(dataset) -> np.ndarray:
     targets = [example.graph_target.detach().cpu().numpy() for example in dataset.examples]
     return np.stack(targets, axis=0)
