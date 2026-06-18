@@ -91,3 +91,33 @@ def test_contrastive_pretrain_infonce_still_default(tmp_path):
     )
     assert result.loss_history
     assert math.isfinite(result.loss_history[-1])
+
+
+def test_contrastive_pretrain_scaffold_mask_runs(tmp_path):
+    # The tiny fixture uses CO/CCO/CCN/CCC — all unique scaffolds,
+    # so the mask is all-False. This is a regression test that the
+    # code path runs without error and produces a finite loss.
+    dataset = make_tiny_quantum_dataset(tmp_path)
+    result = contrastive_pretrain_on_dataset(
+        dataset,
+        hidden_dim=16,
+        hidden_dim_3d=16,
+        epochs=2,
+        batch_size=4,
+        teacher_weight=1.0,
+        conformer_pool_mode="energy",
+        use_scaffold_negmask=True,
+        seed=0,
+    )
+    assert result.loss_history
+    assert math.isfinite(result.loss_history[-1])
+
+
+def test_contrastive_pretrain_scaffold_mask_default_false(tmp_path):
+    # Omitting use_scaffold_negmask produces the same result as use_scaffold_negmask=False.
+    dataset = make_tiny_quantum_dataset(tmp_path)
+    result = contrastive_pretrain_on_dataset(
+        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+    )
+    assert result.loss_history
+    assert math.isfinite(result.loss_history[-1])

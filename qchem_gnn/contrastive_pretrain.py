@@ -15,6 +15,7 @@ from .minimal import MinimalQuantumDataset
 from .model import MolecularQuantumGNN
 from .quantum_data import compute_target_normalization, normalize_targets
 from .teacher_heads import QuantumTeacherHeads, assemble_conformer_targets, teacher_loss
+from .eval import build_scaffold_negative_mask
 
 
 def _boltzmann_pool_molecules(
@@ -97,6 +98,7 @@ def contrastive_pretrain_on_dataset(
     vicreg_sim_weight: float = 25.0,
     vicreg_var_weight: float = 25.0,
     vicreg_cov_weight: float = 1.0,
+    use_scaffold_negmask: bool = False,
     seed: int = 0,
 ) -> ContrastivePretrainingResult:
     torch.manual_seed(seed)
@@ -132,6 +134,10 @@ def contrastive_pretrain_on_dataset(
     contrastive_loss_history: list[float] = []
     num_examples = len(examples)
 
+    full_mask: torch.Tensor | None = None
+    if use_scaffold_negmask:
+        full_mask = build_scaffold_negative_mask(examples)
+
     for _ in range(epochs):
         order = torch.randperm(num_examples)
         epoch_total = 0.0
@@ -156,6 +162,10 @@ def contrastive_pretrain_on_dataset(
             if len(usable) >= 2:
                 coords_index = [pos for pos, _ in usable]
                 usable_examples = [ex for _, ex in usable]
+                batch_mask: torch.Tensor | None = None
+                if full_mask is not None:
+                    global_idx = [batch_indices[p] for p in coords_index]
+                    batch_mask = full_mask[global_idx][:, global_idx].to(supervised.device)
                 conformer_batch = ConformerEncoderBatch.from_molecule_conformers(
                     [ex.graph for ex in usable_examples],
                     [ex.conformer_coords for ex in usable_examples],
@@ -202,7 +212,8 @@ def contrastive_pretrain_on_dataset(
                         )
                     elif contrastive_loss == "infonce":
                         contrastive = info_nce_contrastive_loss(
-                            view_2d, view_3d, temperature=temperature
+                            view_2d, view_3d, temperature=temperature,
+                            negative_mask=batch_mask,
                         )
                     else:
                         raise ValueError(f"unknown contrastive_loss: {contrastive_loss!r}")
