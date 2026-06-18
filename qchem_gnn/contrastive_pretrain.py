@@ -185,12 +185,29 @@ def contrastive_pretrain_on_dataset(
     vicreg_cov_weight: float = 1.0,
     use_scaffold_negmask: bool = False,
     seed: int = 0,
+    checkpoint_path: Path | None = None,
+    checkpoint_every: int = 10,
+    resume: bool = False,
 ) -> ContrastivePretrainingResult:
-    torch.manual_seed(seed)
     examples = dataset.examples
     normalization = compute_target_normalization(dataset)
-
+    num_examples = len(examples)
     node_targets = int(examples[0].node_target.shape[-1])
+
+    checkpoint_path = Path(checkpoint_path) if checkpoint_path is not None else None
+    do_resume = resume and checkpoint_path is not None and checkpoint_path.exists()
+
+    # Fresh runs seed BEFORE construction (preserving prior RNG behavior); resume
+    # runs restore the RNG stream AFTER construction (below).
+    if not do_resume:
+        torch.manual_seed(seed)
+        if resume and checkpoint_path is not None:
+            warnings.warn(
+                f"resume requested but no checkpoint at {checkpoint_path}; "
+                "starting fresh",
+                stacklevel=2,
+            )
+
     model = MolecularQuantumGNN(
         atom_vocab_size=128,
         bond_vocab_size=8,
@@ -215,11 +232,71 @@ def contrastive_pretrain_on_dataset(
     params += list(proj_2d.parameters()) + list(proj_3d.parameters())
     optimizer = torch.optim.Adam(params, lr=learning_rate)
 
+    current_fingerprint = _build_fingerprint(
+        {
+            "hidden_dim": hidden_dim,
+            "num_message_passing_steps": num_message_passing_steps,
+            "hidden_dim_3d": hidden_dim_3d,
+            "num_rbf": num_rbf,
+            "cutoff": cutoff,
+            "num_message_passing_steps_3d": num_message_passing_steps_3d,
+            "batch_size": batch_size,
+            "learning_rate": learning_rate,
+            "supervised_weight": supervised_weight,
+            "contrastive_weight": contrastive_weight,
+            "teacher_weight": teacher_weight,
+            "temperature": temperature,
+            "energy_temperature": energy_temperature,
+            "conformer_pool_mode": conformer_pool_mode,
+            "contrastive_loss": contrastive_loss,
+            "vicreg_sim_weight": vicreg_sim_weight,
+            "vicreg_var_weight": vicreg_var_weight,
+            "vicreg_cov_weight": vicreg_cov_weight,
+            "use_scaffold_negmask": use_scaffold_negmask,
+            "seed": seed,
+            "node_targets": node_targets,
+            "num_examples": num_examples,
+        }
+    )
+
     loss_history: list[float] = []
     contrastive_loss_history: list[float] = []
-    num_examples = len(examples)
+    start_epoch = 0
 
-    for _ in range(epochs):
+    if do_resume:
+        payload = _load_checkpoint(checkpoint_path)
+        _validate_fingerprint(payload["config_fingerprint"], current_fingerprint)
+        model.load_state_dict(payload["model_state_dict"])
+        encoder3d.load_state_dict(payload["encoder3d_state_dict"])
+        teacher.load_state_dict(payload["teacher_state_dict"])
+        proj_2d.load_state_dict(payload["proj_2d_state_dict"])
+        proj_3d.load_state_dict(payload["proj_3d_state_dict"])
+        optimizer.load_state_dict(payload["optimizer_state_dict"])
+        torch.set_rng_state(payload["rng_state"])
+        loss_history = list(payload["loss_history"])
+        contrastive_loss_history = list(payload["contrastive_loss_history"])
+        start_epoch = int(payload["epoch"])
+
+    def _write_checkpoint(completed_epochs: int) -> None:
+        _atomic_save_checkpoint(
+            checkpoint_path,
+            {
+                "version": PRETRAIN_CHECKPOINT_VERSION,
+                "epoch": completed_epochs,
+                "model_state_dict": model.state_dict(),
+                "encoder3d_state_dict": encoder3d.state_dict(),
+                "teacher_state_dict": teacher.state_dict(),
+                "proj_2d_state_dict": proj_2d.state_dict(),
+                "proj_3d_state_dict": proj_3d.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "rng_state": torch.get_rng_state(),
+                "loss_history": list(loss_history),
+                "contrastive_loss_history": list(contrastive_loss_history),
+                "config_fingerprint": current_fingerprint,
+            },
+        )
+
+    for epoch in range(start_epoch, epochs):
         order = torch.randperm(num_examples)
         epoch_total = 0.0
         epoch_contrastive = 0.0
@@ -320,6 +397,11 @@ def contrastive_pretrain_on_dataset(
 
         loss_history.append(epoch_total / max(num_batches, 1))
         contrastive_loss_history.append(epoch_contrastive / max(num_batches, 1))
+
+        if checkpoint_path is not None and (
+            (epoch + 1) % checkpoint_every == 0 or epoch + 1 == epochs
+        ):
+            _write_checkpoint(epoch + 1)
 
     model.eval()
     with torch.no_grad():

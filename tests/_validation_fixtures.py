@@ -16,6 +16,7 @@ def make_tiny_quantum_dataset(tmp_path, mols=None):
     """
     mols = mols or [("CO", 6), ("CCO", 9), ("CCN", 10), ("CCC", 11)]
     tmp_path = Path(tmp_path)
+    tmp_path.mkdir(parents=True, exist_ok=True)
     csv_path = tmp_path / "subset_044.csv"
     csv_path.write_text(
         "smiles,logP,qed,SAS\n"
