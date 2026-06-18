@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -17,6 +19,81 @@ from .model import MolecularQuantumGNN
 from .quantum_data import compute_target_normalization, normalize_targets
 from .teacher_heads import QuantumTeacherHeads, assemble_conformer_targets, teacher_loss
 from .eval import scaffold_key_from_smiles, scaffold_mask_from_keys
+
+
+PRETRAIN_CHECKPOINT_VERSION = 1
+
+_FINGERPRINT_FIELDS = (
+    "hidden_dim",
+    "num_message_passing_steps",
+    "hidden_dim_3d",
+    "num_rbf",
+    "cutoff",
+    "num_message_passing_steps_3d",
+    "batch_size",
+    "learning_rate",
+    "supervised_weight",
+    "contrastive_weight",
+    "teacher_weight",
+    "temperature",
+    "energy_temperature",
+    "conformer_pool_mode",
+    "contrastive_loss",
+    "vicreg_sim_weight",
+    "vicreg_var_weight",
+    "vicreg_cov_weight",
+    "use_scaffold_negmask",
+    "seed",
+    "node_targets",
+    "num_examples",
+)
+
+
+class CheckpointMismatchError(RuntimeError):
+    """Raised when a resume checkpoint is unreadable or disagrees with the run."""
+
+
+def _build_fingerprint(params: dict) -> dict:
+    return {key: params[key] for key in _FINGERPRINT_FIELDS}
+
+
+def _validate_fingerprint(saved: dict, current: dict) -> None:
+    differing = [k for k in _FINGERPRINT_FIELDS if saved.get(k) != current.get(k)]
+    if differing:
+        details = ", ".join(
+            f"{k}: checkpoint={saved.get(k)!r} != config={current.get(k)!r}"
+            for k in differing
+        )
+        raise CheckpointMismatchError(
+            f"cannot resume: config differs from checkpoint ({details}). "
+            "Use overwrite to restart from scratch."
+        )
+
+
+def _atomic_save_checkpoint(path: Path, payload: dict) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / (path.name + ".tmp")
+    torch.save(payload, tmp)
+    os.replace(tmp, path)
+
+
+def _load_checkpoint(path: Path) -> dict:
+    try:
+        payload = torch.load(Path(path), weights_only=False)
+    except Exception as exc:  # noqa: BLE001 - surface as a clear resume error
+        raise CheckpointMismatchError(
+            f"could not read checkpoint at {path}: {exc}. "
+            "Use overwrite to restart from scratch."
+        ) from exc
+    if not isinstance(payload, dict) or payload.get("version") != PRETRAIN_CHECKPOINT_VERSION:
+        got = payload.get("version") if isinstance(payload, dict) else None
+        raise CheckpointMismatchError(
+            f"checkpoint version mismatch at {path}: expected "
+            f"{PRETRAIN_CHECKPOINT_VERSION}, got {got}. "
+            "Use overwrite to restart from scratch."
+        )
+    return payload
 
 
 def _example_scaffold_key(example) -> int:
