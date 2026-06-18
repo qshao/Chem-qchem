@@ -72,3 +72,44 @@ def test_vicreg_requires_two_examples():
 def test_vicreg_shape_mismatch_raises():
     with pytest.raises(ValueError):
         vicreg_loss(torch.randn(8, 4), torch.randn(8, 5))
+
+
+def test_infonce_negative_mask_none_is_default_behaviour():
+    torch.manual_seed(0)
+    z = torch.randn(4, 8)
+    assert torch.allclose(
+        info_nce_contrastive_loss(z, z.clone()),
+        info_nce_contrastive_loss(z, z.clone(), negative_mask=None),
+    )
+
+
+def test_infonce_all_false_mask_unchanged():
+    torch.manual_seed(1)
+    z = torch.randn(4, 8)
+    mask = torch.zeros(4, 4, dtype=torch.bool)
+    assert torch.allclose(
+        info_nce_contrastive_loss(z, z.clone()),
+        info_nce_contrastive_loss(z, z.clone(), negative_mask=mask),
+    )
+
+
+def test_infonce_full_off_diagonal_mask_zero_loss():
+    # With all negatives masked only the positive remains;
+    # log(softmax([x, -inf, -inf, ...])[0]) = 0.
+    torch.manual_seed(2)
+    z = torch.randn(4, 8)
+    mask = ~torch.eye(4, dtype=torch.bool)
+    loss = info_nce_contrastive_loss(z, z.clone(), negative_mask=mask)
+    assert float(loss) == pytest.approx(0.0, abs=1e-5)
+
+
+def test_infonce_partial_mask_lowers_loss():
+    # Fewer negatives -> smaller denominator -> higher positive probability -> lower loss.
+    torch.manual_seed(3)
+    z = torch.randn(8, 4)
+    mask = torch.zeros(8, 8, dtype=torch.bool)
+    mask[0, 1] = True
+    mask[1, 0] = True
+    loss_unmasked = info_nce_contrastive_loss(z, z.clone())
+    loss_masked = info_nce_contrastive_loss(z, z.clone(), negative_mask=mask)
+    assert float(loss_masked) <= float(loss_unmasked) + 1e-5

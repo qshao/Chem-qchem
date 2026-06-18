@@ -75,6 +75,7 @@ def info_nce_contrastive_loss(
     z_a: torch.Tensor,
     z_b: torch.Tensor,
     temperature: float = 0.1,
+    negative_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if z_a.shape != z_b.shape:
         raise ValueError("z_a and z_b must have the same shape")
@@ -84,6 +85,9 @@ def info_nce_contrastive_loss(
     z_a = F.normalize(z_a, dim=-1)
     z_b = F.normalize(z_b, dim=-1)
     logits = (z_a @ z_b.t()) / temperature
+    if negative_mask is not None:
+        eye = torch.eye(logits.shape[0], dtype=torch.bool, device=logits.device)
+        logits = logits.masked_fill(negative_mask & ~eye, float("-inf"))
     labels = torch.arange(z_a.shape[0], device=z_a.device)
     loss_ab = F.cross_entropy(logits, labels)
     loss_ba = F.cross_entropy(logits.t(), labels)
