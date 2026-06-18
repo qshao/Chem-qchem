@@ -17,7 +17,7 @@
 
 command: adapt
 method: finetune
-backbone: runs/validate_scaled/quantum_scaffold_s0.pt
+backbone: runs/validate/quantum_scaffold_s0.pt
 
 task: regression
 

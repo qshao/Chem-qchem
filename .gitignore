@@ -3,3 +3,14 @@ __pycache__/
 *.pyc
 zinc-250k/
 record
+
+# Downloaded datasets (use data/download_bde.sh to retrieve)
+data/*.csv
+
+# Trained model checkpoints and run artifacts
+runs/*.pt
+runs/validate/
+runs/validate_scaled/
+runs/scaling_s*/
+runs/*.log
+runs/validate_run.log
