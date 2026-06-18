@@ -13,6 +13,7 @@ from .adapt import resolve_adapt_config
 from .adapt import run as adapt_run
 from .conformer import ConformerEncoderBatch
 from .contrastive_pretrain import contrastive_pretrain_on_dataset
+from .eval import scaffold_key_from_smiles
 from .minimal import MinimalQuantumDataset
 from .teacher_heads import assemble_conformer_targets
 
@@ -34,6 +35,38 @@ def split_holdout(
     holdout_positions = set(order[:n_holdout])
     pretrain = [ex for i, ex in enumerate(examples) if i not in holdout_positions]
     holdout = [ex for i, ex in enumerate(examples) if i in holdout_positions]
+    return (
+        MinimalQuantumDataset(examples=pretrain),
+        MinimalQuantumDataset(examples=holdout),
+    )
+
+
+def scaffold_hash_holdout(
+    dataset: MinimalQuantumDataset, k: int
+) -> tuple[MinimalQuantumDataset, MinimalQuantumDataset]:
+    """Deterministic scaffold-disjoint holdout: holdout iff scaffold_key % k == 0.
+
+    Uses each example's stored ``scaffold_key`` (falling back to computing it from
+    SMILES when absent). A scaffold lands in the same split regardless of which
+    shard it came from, so pretrain and holdout never share a scaffold.
+    """
+    if k < 1:
+        raise ValueError(f"holdout k must be >= 1, got {k}")
+    pretrain = []
+    holdout = []
+    for ex in dataset.examples:
+        key = ex.scaffold_key
+        if key is None:
+            key = scaffold_key_from_smiles(ex.smiles)
+        if key % k == 0:
+            holdout.append(ex)
+        else:
+            pretrain.append(ex)
+    if not holdout:
+        raise ValueError(
+            f"scaffold_hash_holdout(k={k}) produced an empty holdout "
+            f"(pretrain={len(pretrain)}, holdout={len(holdout)})"
+        )
     return (
         MinimalQuantumDataset(examples=pretrain),
         MinimalQuantumDataset(examples=holdout),
@@ -369,9 +402,12 @@ def run_validation(cfg: dict, dataset=None, overwrite=False) -> dict:
         dataset = _load_dataset(cfg["pretrain"])
 
     holdout_cfg = cfg["holdout"]
-    pretrain_ds, holdout = split_holdout(
-        dataset, fraction=holdout_cfg["fraction"], seed=holdout_cfg["seed"]
-    )
+    if "k" in holdout_cfg:
+        pretrain_ds, holdout = scaffold_hash_holdout(dataset, k=holdout_cfg["k"])
+    else:
+        pretrain_ds, holdout = split_holdout(
+            dataset, fraction=holdout_cfg["fraction"], seed=holdout_cfg["seed"]
+        )
 
     out_dir = Path(cfg["outputs"]["dir"])
     extrinsic_rows: list[dict] = []
