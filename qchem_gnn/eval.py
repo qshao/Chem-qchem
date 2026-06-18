@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import numpy as np
 import torch
@@ -170,6 +171,31 @@ def _infer_scaffolds(molecule_ids: Iterable[str], smiles: Iterable[str]) -> dict
             continue
         scaffolds[molecule_id] = MurckoScaffold.MurckoScaffoldSmiles(mol=mol) or smile
     return scaffolds
+
+
+def scaffold_key_from_smiles(smiles: str) -> int:
+    """Globally stable integer key for a molecule's Murcko scaffold.
+
+    Two molecules sharing a Murcko scaffold get the same key, deterministically
+    across processes and shards (unlike Python's per-process-salted ``hash()``).
+    Unparseable SMILES fall back to the raw SMILES, so they only collide with an
+    identical SMILES string.
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        scaffold = smiles
+    else:
+        scaffold = MurckoScaffold.MurckoScaffoldSmiles(mol=mol) or smiles
+    digest = hashlib.blake2b(scaffold.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big")
+
+
+def scaffold_mask_from_keys(keys: Sequence[int]) -> torch.Tensor:
+    """Return [B, B] CPU bool mask; True at [i,j] iff i!=j and keys[i]==keys[j]."""
+    t = torch.tensor(list(keys), dtype=torch.int64)
+    eq = t[:, None] == t[None, :]
+    eq.fill_diagonal_(False)
+    return eq
 
 
 def build_scaffold_negative_mask(examples) -> torch.Tensor:
