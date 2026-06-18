@@ -46,6 +46,7 @@ VALID_SECTION_KEYS = {
         "vicreg_sim_weight",
         "vicreg_var_weight",
         "vicreg_cov_weight",
+        "use_scaffold_negmask",
         "seed",
     },
     "outputs": {"checkpoint", "metrics", "embeddings"},
@@ -93,6 +94,7 @@ DEFAULT_CONFIG: ConfigDict = {
         "vicreg_sim_weight": 25.0,
         "vicreg_var_weight": 25.0,
         "vicreg_cov_weight": 1.0,
+        "use_scaffold_negmask": False,
         "seed": 0,
     },
     "outputs": {
@@ -246,6 +248,8 @@ def _validate_config(config: ConfigDict) -> None:
     contrastive["vicreg_cov_weight"] = _ensure_non_negative_float(
         contrastive["vicreg_cov_weight"], "contrastive.vicreg_cov_weight"
     )
+    if not isinstance(contrastive["use_scaffold_negmask"], bool):
+        raise ConfigError("contrastive.use_scaffold_negmask must be a boolean")
 
     subset_ids = _ensure_sequence(dataset["subset_ids"], "dataset.subset_ids")
     dataset["subset_ids"] = [_coerce_int(value, "dataset.subset_ids[]") for value in subset_ids]
@@ -412,6 +416,7 @@ def config_to_namespace(config: ConfigDict) -> Namespace:
                     "vicreg_sim_weight": _coerce_float(contrastive["vicreg_sim_weight"], "contrastive.vicreg_sim_weight"),
                     "vicreg_var_weight": _coerce_float(contrastive["vicreg_var_weight"], "contrastive.vicreg_var_weight"),
                     "vicreg_cov_weight": _coerce_float(contrastive["vicreg_cov_weight"], "contrastive.vicreg_cov_weight"),
+                    "use_scaffold_negmask": bool(contrastive["use_scaffold_negmask"]),
                     "seed": _coerce_int(contrastive["seed"], "contrastive.seed"),
                 }
             )

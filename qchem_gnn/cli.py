@@ -95,6 +95,9 @@ def build_parser() -> argparse.ArgumentParser:
     contrastive.add_argument("--vicreg-sim-weight", type=float, help="VICReg invariance weight")
     contrastive.add_argument("--vicreg-var-weight", type=float, help="VICReg variance weight")
     contrastive.add_argument("--vicreg-cov-weight", type=float, help="VICReg covariance weight")
+    contrastive.add_argument("--use-scaffold-negmask", action="store_true",
+                              default=argparse.SUPPRESS,
+                              help="Mask scaffold-similar negatives in InfoNCE")
     contrastive.add_argument("--seed", type=int, help="Random seed")
     contrastive.add_argument("--output", help="Checkpoint output path")
 
@@ -197,6 +200,7 @@ def _config_from_args(args) -> dict[str, object]:
                 ("vicreg_sim_weight", "vicreg_sim_weight"),
                 ("vicreg_var_weight", "vicreg_var_weight"),
                 ("vicreg_cov_weight", "vicreg_cov_weight"),
+                ("use_scaffold_negmask", "use_scaffold_negmask"),
                 ("seed", "seed"),
             ):
                 if hasattr(args, arg_name):
@@ -482,6 +486,7 @@ def run_contrastive_pretrain(args) -> int:
         vicreg_sim_weight=args.vicreg_sim_weight,
         vicreg_var_weight=args.vicreg_var_weight,
         vicreg_cov_weight=args.vicreg_cov_weight,
+        use_scaffold_negmask=args.use_scaffold_negmask,
         seed=args.seed,
     )
 

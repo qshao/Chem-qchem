@@ -599,3 +599,33 @@ def test_namespace_includes_vicreg_fields():
     assert ns.contrastive_loss == "vicreg"
     assert ns.vicreg_sim_weight == 25.0
     assert ns.vicreg_cov_weight == 1.0
+
+
+def _scaffold_base(extra_contrastive=None):
+    return {
+        "command": "contrastive-pretrain",
+        "dataset": {"dataset_root": "zinc-250k", "subset_ids": [44]},
+        "contrastive": extra_contrastive or {},
+        "outputs": {"checkpoint": "out.pt"},
+    }
+
+
+def test_config_default_scaffold_negmask_is_false():
+    cfg = resolve_config(_scaffold_base())
+    assert cfg["contrastive"]["use_scaffold_negmask"] is False
+
+
+def test_config_accepts_scaffold_negmask_true():
+    cfg = resolve_config(_scaffold_base({"use_scaffold_negmask": True}))
+    assert cfg["contrastive"]["use_scaffold_negmask"] is True
+
+
+def test_config_rejects_string_scaffold_negmask():
+    with pytest.raises(ConfigError):
+        resolve_config(_scaffold_base({"use_scaffold_negmask": "yes"}))
+
+
+def test_namespace_includes_scaffold_negmask():
+    cfg = resolve_config(_scaffold_base({"use_scaffold_negmask": True}))
+    ns = config_to_namespace(cfg)
+    assert ns.use_scaffold_negmask is True
