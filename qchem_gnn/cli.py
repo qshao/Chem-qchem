@@ -19,6 +19,7 @@ from .minimal import load_quantum_zinc_dataset, train_on_minimal_dataset
 from .pretrain import pretrain_on_minimal_dataset
 from .model import MolecularQuantumGNN
 from .quantum_data import load_quantum_zinc_subset_range, normalize_targets
+from .shard_cache import preprocess_shard
 from .splits import scaffold_or_random_split
 
 
@@ -137,6 +138,14 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="KEY=VALUE",
         help="Dotted-key overrides, e.g. training.epochs=100",
     )
+
+    preprocess = subparsers.add_parser(
+        "preprocess", help="Extract shards into compact scaffold-keyed caches"
+    )
+    preprocess.add_argument("--dataset-root", required=True, help="Dataset root with subsets/, geometries/, results/")
+    preprocess.add_argument("--subset-ids", required=True, help="Comma-separated subset ids, e.g. 0,1,2")
+    preprocess.add_argument("--cache-dir", required=True, help="Output directory for compact shard caches")
+    preprocess.add_argument("--overwrite", action="store_true", default=False, help="Re-extract even if a valid cache exists")
 
     return parser
 
@@ -808,11 +817,26 @@ def run_adapt(args) -> int:
     return 0
 
 
+def run_preprocess(args) -> int:
+    subset_ids = [int(s) for s in str(args.subset_ids).split(",") if s != ""]
+    for subset_id in subset_ids:
+        path = preprocess_shard(
+            args.dataset_root,
+            subset_id,
+            args.cache_dir,
+            overwrite=getattr(args, "overwrite", False),
+        )
+        print(f"wrote {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     raw_args = parser.parse_args(argv)
     if raw_args.command == "adapt":
         return run_adapt(raw_args)
+    if raw_args.command == "preprocess":
+        return run_preprocess(raw_args)
     args = _resolved_namespace_from_args(raw_args)
 
     if args.command == "train":
