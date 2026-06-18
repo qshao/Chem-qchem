@@ -61,7 +61,7 @@ if [[ "$OVERWRITE" == "--overwrite" ]]; then
     echo "    (--overwrite: re-extracting even if cache exists)"
 fi
 
-python -m qchem_gnn preprocess \
+python -m qchem_gnn.cli preprocess \
     --dataset-root "$DATASET_ROOT" \
     --subset-ids "$IDS" \
     --cache-dir "$CACHE_DIR" \

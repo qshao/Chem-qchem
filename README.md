@@ -288,7 +288,7 @@ bash scripts/preprocess.sh zinc-250k zinc-250k/compact_cache "0-249"
 
 Or call the CLI directly for a custom subset:
 ```bash
-python -m qchem_gnn preprocess \
+python -m qchem_gnn.cli preprocess \
   --dataset-root zinc-250k \
   --subset-ids 0,1,2,...,49 \
   --cache-dir zinc-250k/compact_cache

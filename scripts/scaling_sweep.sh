@@ -25,7 +25,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 MAX_SCALE=$(echo "$SCALES" | tr ' ' '\n' | sort -n | tail -1)
 MAX_IDX=$((MAX_SCALE - 1))
 IDS=$(seq -s, 0 "$MAX_IDX")
-python -m qchem_gnn preprocess --dataset-root "$DATASET_ROOT" --subset-ids "$IDS" --cache-dir "$CACHE_DIR"
+python -m qchem_gnn.cli preprocess --dataset-root "$DATASET_ROOT" --subset-ids "$IDS" --cache-dir "$CACHE_DIR"
 
 REPORT_ARGS=()
 for SCALE in $SCALES; do
