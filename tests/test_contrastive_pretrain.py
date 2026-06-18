@@ -121,3 +121,24 @@ def test_contrastive_pretrain_scaffold_mask_default_false(tmp_path):
     )
     assert result.loss_history
     assert math.isfinite(result.loss_history[-1])
+
+
+def test_per_batch_scaffold_mask_matches_key_equality():
+    # The per-batch mask must equal scaffold-key equality for the batch's molecules.
+    import torch
+    from qchem_gnn.eval import scaffold_key_from_smiles, scaffold_mask_from_keys
+
+    smiles = ["Cc1ccccc1", "Nc1ccccc1", "CCO"]  # benzene, benzene, ethanol
+    keys = [scaffold_key_from_smiles(s) for s in smiles]
+    mask = scaffold_mask_from_keys(keys)
+    expected = torch.tensor(
+        [[False, True, False],
+         [True, False, False],
+         [False, False, False]]
+    )
+    assert torch.equal(mask, expected)
+
+
+def test_build_scaffold_negative_mask_removed():
+    import qchem_gnn.eval as ev
+    assert not hasattr(ev, "build_scaffold_negative_mask")

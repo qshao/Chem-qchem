@@ -187,7 +187,7 @@ def scaffold_key_from_smiles(smiles: str) -> int:
     else:
         scaffold = MurckoScaffold.MurckoScaffoldSmiles(mol=mol) or smiles
     digest = hashlib.blake2b(scaffold.encode("utf-8"), digest_size=8).digest()
-    return int.from_bytes(digest, "big")
+    return int.from_bytes(digest, "big", signed=True)
 
 
 def scaffold_mask_from_keys(keys: Sequence[int]) -> torch.Tensor:
@@ -196,27 +196,6 @@ def scaffold_mask_from_keys(keys: Sequence[int]) -> torch.Tensor:
     eq = t[:, None] == t[None, :]
     eq.fill_diagonal_(False)
     return eq
-
-
-def build_scaffold_negative_mask(examples) -> torch.Tensor:
-    """Return [N, N] CPU bool tensor; True at [i,j] iff i≠j and scaffold[i]==scaffold[j]."""
-    n = len(examples)
-    ids = [str(i) for i in range(n)]
-    smiles = [ex.smiles for ex in examples]
-    scaffolds = _infer_scaffolds(ids, smiles)
-    groups: dict[str, list[int]] = {}
-    for i, mol_id in enumerate(ids):
-        s = scaffolds[mol_id]
-        groups.setdefault(s, []).append(i)
-    mask = torch.zeros(n, n, dtype=torch.bool)
-    for indices in groups.values():
-        if len(indices) < 2:
-            continue
-        for i in indices:
-            for j in indices:
-                if i != j:
-                    mask[i, j] = True
-    return mask
 
 
 def _dataset_targets(dataset) -> np.ndarray:
