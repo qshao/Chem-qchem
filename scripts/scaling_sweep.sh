@@ -18,6 +18,9 @@ CACHE_DIR="${2:?Usage: scaling_sweep.sh <dataset_root> <cache_dir> [scales]}"
 SCALES="${3:-1 10 50}"
 BASE_CONFIG="configs/validate_scaled.yaml"
 
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
 # Preprocess enough shards for the largest scale (skip-if-exists makes this cheap).
 MAX_SCALE=$(echo "$SCALES" | tr ' ' '\n' | sort -n | tail -1)
 MAX_IDX=$((MAX_SCALE - 1))
@@ -30,17 +33,17 @@ for SCALE in $SCALES; do
     IDS=$(seq -s, 0 "$LAST_IDX")
     OUT_DIR="runs/scaling_s${SCALE}"
     # Override subset_ids and output dir for this scale via a temp config.
-    python - "$BASE_CONFIG" "$CACHE_DIR" "$IDS" "$OUT_DIR" <<'PY'
+    python - "$BASE_CONFIG" "$CACHE_DIR" "$IDS" "$OUT_DIR" "$TMPDIR/scaling_cfg_${SCALE}.yaml" <<'PY'
 import sys, yaml
-base, cache_dir, ids, out_dir = sys.argv[1:5]
+base, cache_dir, ids, out_dir, cfg_out = sys.argv[1:6]
 cfg = yaml.safe_load(open(base))
 cfg["pretrain"]["cache_dir"] = cache_dir
 cfg["pretrain"]["subset_ids"] = [int(x) for x in ids.split(",")]
 cfg["outputs"]["dir"] = out_dir
 cfg["outputs"]["report"] = f"{out_dir}/report"
-yaml.safe_dump(cfg, open(f"/tmp/scaling_cfg_{out_dir.replace('/', '_')}.yaml", "w"))
+yaml.safe_dump(cfg, open(cfg_out, "w"))
 PY
-    python -m qchem_gnn.validation --config "/tmp/scaling_cfg_${OUT_DIR//\//_}.yaml"
+    python -m qchem_gnn.validation --config "$TMPDIR/scaling_cfg_${SCALE}.yaml"
     REPORT_ARGS+=("${SCALE}=${OUT_DIR}/report.json")
 done
 

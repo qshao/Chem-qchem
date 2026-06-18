@@ -62,9 +62,9 @@ def scaffold_hash_holdout(
             holdout.append(ex)
         else:
             pretrain.append(ex)
-    if not holdout:
+    if not pretrain or not holdout:
         raise ValueError(
-            f"scaffold_hash_holdout(k={k}) produced an empty holdout "
+            f"scaffold_hash_holdout(k={k}) produced an empty side "
             f"(pretrain={len(pretrain)}, holdout={len(holdout)})"
         )
     return (

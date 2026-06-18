@@ -267,6 +267,32 @@ Optional inline overrides (dotted-key syntax):
 bash scripts/adapt.sh configs/adapt_mydata.yaml training.epochs=200 training.lr=5e-4
 ```
 
+### Preprocess shards into compact caches
+
+```bash
+python -m qchem_gnn preprocess \
+  --dataset-root zinc-250k \
+  --subset-ids 0,1,2,...,49 \
+  --cache-dir zinc-250k/compact_cache
+```
+
+Extracts each shard once (skip-if-exists), dropping the large density matrix
+(~6.8 GB/shard → ~90 MB), and attaches a globally stable scaffold key to each
+molecule. Re-running is safe — existing caches are skipped.
+
+### Scaling sweep
+
+```bash
+bash scripts/scaling_sweep.sh <dataset_root> <cache_dir> [scales]
+```
+
+Preprocesses shards (if not already done), runs the full validation at each
+scale point, and prints a MAE-vs-scale table. Defaults to 1, 10, 50 shards.
+
+```bash
+bash scripts/scaling_sweep.sh zinc-250k zinc-250k/compact_cache "1 10 50"
+```
+
 ## Notes
 
 - The current model is a 2D graph neural network that learns from quantum-informed supervision during training.

@@ -32,18 +32,25 @@ def test_scaffold_hash_holdout_is_deterministic_and_disjoint():
 
 
 def test_scaffold_hash_holdout_falls_back_to_smiles_when_key_missing():
-    # scaffold_key None -> computed from smiles; identical scaffolds share a bucket
-    a = _ex("a", "Cc1ccccc1", key=None)
-    b = _ex("b", "Nc1ccccc1", key=None)  # same benzene scaffold as a
-    ds = MinimalQuantumDataset(examples=[a, b])
-    pre, hold = scaffold_hash_holdout(ds, k=1)  # k=1 -> everything holdout
-    assert len(hold.examples) == 2 and len(pre.examples) == 0 or (
-        len(pre.examples) == 2 and len(hold.examples) == 0
-    )
-    # a and b must land in the SAME split (same scaffold)
+    # scaffold_key None -> computed from smiles; same scaffold -> same key -> same split
+    a = _ex("a", "Cc1ccccc1", key=None)   # toluene, benzene scaffold
+    b = _ex("b", "Nc1ccccc1", key=None)   # aniline, same benzene scaffold
+    # c has an explicit key guaranteed to differ from a/b's benzene key modulo 2
+    # by flipping the last bit, so with k=2 they land in opposite buckets.
+    from qchem_gnn.eval import scaffold_key_from_smiles
+    benzene_key = scaffold_key_from_smiles("Cc1ccccc1")
+    c_key = benzene_key ^ 1  # always differs from benzene_key by 1 bit => different % 2
+    c = _ex("c", "CCO", key=c_key)
+
+    ds = MinimalQuantumDataset(examples=[a, b, c])
+    pre, hold = scaffold_hash_holdout(ds, k=2)
+
+    # a and b must land in the SAME split (same scaffold key)
     split_of = {e.mol_id: "hold" for e in hold.examples}
     split_of.update({e.mol_id: "pre" for e in pre.examples})
     assert split_of["a"] == split_of["b"]
+    # Both sides non-empty: c is on the opposite side from a/b
+    assert len(pre.examples) > 0 and len(hold.examples) > 0
 
 
 def test_scaffold_hash_holdout_raises_when_a_side_is_empty():
