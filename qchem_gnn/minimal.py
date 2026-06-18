@@ -27,6 +27,7 @@ class MinimalQuantumExample:
     conformer_node_targets: torch.Tensor | None = None
     conformer_edge_targets: torch.Tensor | None = None
     conformer_graph_targets: torch.Tensor | None = None
+    scaffold_key: int | None = None
 
 
 @dataclass(frozen=True)
