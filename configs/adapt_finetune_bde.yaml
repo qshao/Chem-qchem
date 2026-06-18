@@ -1,0 +1,50 @@
+# Predict homolytic bond dissociation enthalpy (BDE) by fine-tuning the full
+# backbone jointly with the MLP head.
+#
+# Dataset: BDE-db (290,664 bonds from ~50K small organic molecules, C/H/O/N,
+#          ≤10 heavy atoms). Target: BDE in kcal/mol (range ~55–125).
+#          One row per bond; the same parent molecule appears once per bond.
+#
+# Download data first:
+#   bash data/download_bde.sh
+#
+# Run:
+#   bash scripts/adapt.sh configs/adapt_finetune_bde.yaml
+#
+# The backbone is updated at a much lower learning rate than the head to avoid
+# catastrophic forgetting of pretrained representations. This typically gives
+# lower MAE than MLP head alone when the task distribution shifts from pretraining.
+
+command: adapt
+method: finetune
+backbone: runs/validate_scaled/quantum_scaffold_s0.pt
+
+task: regression
+
+dataset:
+  csv: data/bde.csv
+  smiles_col: molecule      # parent molecule SMILES
+  targets: [bde]            # kcal/mol
+
+adapter:
+  hidden_dims: [256, 128, 64]
+  dropout: 0.1
+
+training:
+  epochs: 50                # fewer epochs; backbone is already feature-rich
+  head_lr: 1.0e-3           # head learns fast
+  backbone_lr: 5.0e-6       # backbone updates slowly to preserve pretrained features
+  batch_size: 64
+  patience: 15
+  grad_clip: 1.0            # clip gradients to stabilise backbone fine-tuning
+  seed: 42
+
+split:
+  test_frac: 0.1
+  val_frac: 0.1
+  seed: 42
+  stratify: false
+
+outputs:
+  adapter: runs/finetune_bde.pt
+  report: runs/finetune_bde_metrics.json

@@ -1,0 +1,50 @@
+# Predict homolytic bond dissociation enthalpy (BDE) using the ENGINE
+# (Estimation via Neural Network Grown from Intrinsic Embeddings) adapter.
+#
+# Dataset: BDE-db (290,664 bonds from ~50K small organic molecules, C/H/O/N,
+#          ≤10 heavy atoms). Target: BDE in kcal/mol (range ~55–125).
+#          One row per bond; the same parent molecule appears once per bond.
+#
+# Download data first:
+#   bash data/download_bde.sh
+#
+# Run:
+#   bash scripts/adapt.sh configs/adapt_engine_bde.yaml
+#
+# ENGINE builds a side-structure by jointly training a backbone projection and
+# a task-specific decoder without disturbing the original backbone weights.
+# It typically underperforms finetune on small datasets but can match or exceed
+# it on large datasets (290K rows here) while keeping the backbone intact.
+# More epochs are beneficial — compare 100 vs 400 epochs if training time permits.
+
+command: adapt
+method: engine
+backbone: runs/validate_scaled/quantum_scaffold_s0.pt
+
+task: regression
+
+dataset:
+  csv: data/bde.csv
+  smiles_col: molecule      # parent molecule SMILES
+  targets: [bde]            # kcal/mol
+
+adapter:
+  hidden_dims: [256, 128, 64]
+  dropout: 0.1
+
+training:
+  epochs: 400               # ENGINE benefits from longer training
+  lr: 1.0e-3
+  batch_size: 64
+  patience: 50
+  seed: 42
+
+split:
+  test_frac: 0.1
+  val_frac: 0.1
+  seed: 42
+  stratify: false
+
+outputs:
+  adapter: runs/engine_bde.pt
+  report: runs/engine_bde_metrics.json

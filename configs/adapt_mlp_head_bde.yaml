@@ -1,0 +1,47 @@
+# Predict homolytic bond dissociation enthalpy (BDE) using a frozen backbone
+# with a lightweight MLP head.
+#
+# Dataset: BDE-db (290,664 bonds from ~50K small organic molecules, C/H/O/N,
+#          ≤10 heavy atoms). Target: BDE in kcal/mol (range ~55–125).
+#          One row per bond; the same parent molecule appears once per bond.
+#
+# Download data first:
+#   bash data/download_bde.sh
+#
+# Run:
+#   bash scripts/adapt.sh configs/adapt_mlp_head_bde.yaml
+#
+# The backbone is frozen; only the MLP head is trained. Fast (minutes), works
+# well when the pretrained representation already captures bond-relevant features.
+
+command: adapt
+method: mlp_head
+backbone: runs/validate_scaled/quantum_scaffold_s0.pt
+
+task: regression
+
+dataset:
+  csv: data/bde.csv
+  smiles_col: molecule      # parent molecule SMILES
+  targets: [bde]            # kcal/mol
+
+adapter:
+  hidden_dims: [256, 128, 64]
+  dropout: 0.1
+
+training:
+  epochs: 100
+  lr: 1.0e-3
+  batch_size: 256           # large dataset (290K rows) — large batch is fine
+  patience: 20
+  seed: 42
+
+split:
+  test_frac: 0.1
+  val_frac: 0.1
+  seed: 42
+  stratify: false           # BDE is continuous; no stratification needed
+
+outputs:
+  adapter: runs/mlp_head_bde.pt
+  report: runs/mlp_head_bde_metrics.json
