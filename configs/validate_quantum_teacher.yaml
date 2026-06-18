@@ -19,14 +19,17 @@ pretrain:
   temperature: 0.1
 
 arms:
-  baseline:       { teacher_weight: 0.0, conformer_pool_mode: mean }
-  quantum:        { teacher_weight: 1.0, conformer_pool_mode: energy, energy_temperature: 298.15 }
-  quantum_vicreg: { teacher_weight: 1.0, conformer_pool_mode: energy, energy_temperature: 298.15,
-                    contrastive_loss: vicreg }
+  baseline:         { teacher_weight: 0.0, conformer_pool_mode: mean }
+  quantum:          { teacher_weight: 1.0, conformer_pool_mode: energy, energy_temperature: 298.15 }
+  quantum_vicreg:   { teacher_weight: 1.0, conformer_pool_mode: energy, energy_temperature: 298.15,
+                      contrastive_loss: vicreg }
+  quantum_scaffold: { teacher_weight: 1.0, conformer_pool_mode: energy, energy_temperature: 298.15,
+                      use_scaffold_negmask: true }
 
 comparisons:
-  - { name: teacher_vs_baseline, reference: baseline, treatment: quantum }
-  - { name: vicreg_vs_infonce,   reference: quantum,   treatment: quantum_vicreg }
+  - { name: teacher_vs_baseline,  reference: baseline,  treatment: quantum }
+  - { name: vicreg_vs_infonce,    reference: quantum,    treatment: quantum_vicreg }
+  - { name: scaffold_vs_infonce,  reference: quantum,    treatment: quantum_scaffold }
 
 seeds: [0, 1, 2]
 

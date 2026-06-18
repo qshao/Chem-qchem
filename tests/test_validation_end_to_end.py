@@ -57,3 +57,41 @@ def test_run_validation_writes_report(tmp_path):
     assert {v["name"] for v in aggregate["verdicts"]} == {"teacher_vs_baseline", "vicreg_vs_infonce"}
     report_text = (out_dir / "report.md").read_text()
     assert "vicreg_vs_infonce" in report_text
+
+
+def test_quantum_scaffold_arm(tmp_path):
+    dataset = make_tiny_quantum_dataset(tmp_path)
+    out_dir = tmp_path / "validate_scaffold"
+    cfg = {
+        "pretrain": {"hidden_dim": 16, "message_passing_steps": 2, "epochs": 2,
+                     "learning_rate": 0.01, "batch_size": 4, "hidden_dim_3d": 16,
+                     "message_passing_steps_3d": 2},
+        "arms": {"baseline": {"teacher_weight": 0.0, "conformer_pool_mode": "mean"},
+                 "quantum": {"teacher_weight": 1.0, "conformer_pool_mode": "energy"},
+                 "quantum_vicreg": {"teacher_weight": 1.0, "conformer_pool_mode": "energy",
+                                    "contrastive_loss": "vicreg"},
+                 "quantum_scaffold": {"teacher_weight": 1.0, "conformer_pool_mode": "energy",
+                                      "use_scaffold_negmask": True}},
+        "comparisons": [
+            {"name": "teacher_vs_baseline", "reference": "baseline", "treatment": "quantum"},
+            {"name": "vicreg_vs_infonce", "reference": "quantum", "treatment": "quantum_vicreg"},
+            {"name": "scaffold_vs_infonce", "reference": "quantum", "treatment": "quantum_scaffold"},
+        ],
+        "seeds": [0],
+        "holdout": {"fraction": 0.25, "seed": 1234},
+        "probes": [{"method": "mlp_head"}],
+        "adapt": {"dataset": {"csv": str(_tiny_esol_csv(tmp_path)),
+                              "smiles_col": "smiles", "targets": ["y"]},
+                  "task": "regression",
+                  "adapter": {"hidden_dims": [8], "dropout": 0.0},
+                  "training": {"epochs": 2, "lr": 1.0e-3, "batch_size": 4,
+                               "patience": 5, "seed": 42},
+                  "split": {"test_frac": 0.25, "val_frac": 0.25, "seed": 42,
+                            "stratify": False}},
+        "outputs": {"dir": str(out_dir), "report": str(out_dir / "report")},
+    }
+    aggregate = run_validation(cfg, dataset=dataset, overwrite=True)
+
+    assert (out_dir / "quantum_scaffold_s0.pt").exists()
+    assert len(aggregate["verdicts"]) == 3
+    assert "scaffold_vs_infonce" in (out_dir / "report.md").read_text()
