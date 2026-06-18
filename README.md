@@ -218,21 +218,23 @@ found in ablation experiments (quantum teacher + scaffold-aware InfoNCE negmask)
 ### Train backbones
 
 ```bash
-bash scripts/train.sh <dataset_root> [output_dir] [seeds]
+bash scripts/train.sh <cache_dir> [shard_range] [output_dir]
 ```
 
-`dataset_root` must contain `subsets/`, `geometries/`, and `results/`. Trains
-one backbone per seed and writes `backbone_s{N}.pt` files to `output_dir`
-(default `checkpoints/`).
+`cache_dir` must contain compact shard `.pt` files produced by `preprocess.sh`.
+Trains 3 seeds and writes backbone checkpoints to `output_dir`
+(default `runs/validate_scaled/`).
 
 ```bash
-# 7-seed run, store in checkpoints/
-bash scripts/train.sh /data/zinc_shard checkpoints "0 1 2 3 4 5 6"
-```
+# Train on first 10 shards
+bash scripts/train.sh zinc-250k/compact_cache "0-9"
 
-Key hyperparameters baked in: `--epochs 200 --hidden-dim 64 --batch-size 16
---conformer-pool-mode energy --contrastive-loss infonce --use-scaffold-negmask`.
-Override any flag by editing the script or calling the CLI directly.
+# Train on all 250 shards, custom output
+bash scripts/train.sh zinc-250k/compact_cache "0-249" runs/train_250k
+
+# Resume an interrupted run
+RESUME=true bash scripts/train.sh zinc-250k/compact_cache "0-9"
+```
 
 ### Export embeddings
 
