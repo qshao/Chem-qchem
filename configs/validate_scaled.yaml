@@ -14,6 +14,8 @@ pretrain:
   epochs: 200
   learning_rate: 0.001
   batch_size: 16
+  resume: false          # set true to continue an interrupted run from its checkpoint
+  checkpoint_every: 10   # write a rolling {arm}_s{seed}.ckpt.pt every N epochs
 
 arms:
   quantum_scaffold:

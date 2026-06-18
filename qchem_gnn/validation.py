@@ -12,7 +12,10 @@ import torch
 from .adapt import resolve_adapt_config
 from .adapt import run as adapt_run
 from .conformer import ConformerEncoderBatch
-from .contrastive_pretrain import contrastive_pretrain_on_dataset
+from .contrastive_pretrain import (
+    CheckpointMismatchError,
+    contrastive_pretrain_on_dataset,
+)
 from .eval import scaffold_key_from_smiles
 from .minimal import MinimalQuantumDataset
 from .teacher_heads import assemble_conformer_targets
@@ -325,10 +328,20 @@ def run_one_cell(
     if cache_hit:
         intrinsic_row["properties"] = json.loads(intrinsic_path.read_text())
     else:
+        checkpoint_path = out_dir / f"{arm_name}_s{seed}.ckpt.pt"
+        resume = bool(pretrain_cfg.get("resume", False)) and not overwrite
+        if overwrite and checkpoint_path.exists():
+            checkpoint_path.unlink()
         try:
             result = contrastive_pretrain_on_dataset(
-                pretrain_ds, **_pretrain_kwargs(pretrain_cfg, arm_overrides, seed)
+                pretrain_ds,
+                checkpoint_path=checkpoint_path,
+                checkpoint_every=int(pretrain_cfg.get("checkpoint_every", 10)),
+                resume=resume,
+                **_pretrain_kwargs(pretrain_cfg, arm_overrides, seed),
             )
+        except CheckpointMismatchError:
+            raise  # config error affects every cell — surface it, don't bury it
         except Exception as exc:  # noqa: BLE001 - per-cell isolation
             return _failed_cell(arm_name, seed, probes, f"pretrain failed: {exc}")
 
@@ -347,6 +360,8 @@ def run_one_cell(
         intrinsic_row["properties"] = props
         intrinsic_path.parent.mkdir(parents=True, exist_ok=True)
         intrinsic_path.write_text(json.dumps(props, indent=2))
+        if intrinsic_row["status"] == "ok" and checkpoint_path.exists():
+            checkpoint_path.unlink()
 
     for probe in probes:
         method = probe["method"]

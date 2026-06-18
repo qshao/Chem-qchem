@@ -123,6 +123,17 @@ runs/validate_scaled/
 └── report.json               # downstream MAE, R², per probe and seed
 ```
 
+### Resuming an interrupted run
+
+Pretraining writes a rolling checkpoint `runs/<dir>/{arm}_s{seed}.ckpt.pt` every
+`checkpoint_every` epochs (and at the final epoch). To continue a run that was
+killed mid-training, set `resume: true` in the `pretrain:` block and re-run the
+same command — each seed picks up from its last checkpoint. Resume refuses if
+the config's structural/hyperparameter fields changed since the checkpoint was
+written (raising `CheckpointMismatchError`); only raising `epochs` is allowed, to
+extend training. `--overwrite` ignores and deletes any checkpoint, restarting
+from epoch 0. Completed seeds (final backbone present) are still skipped entirely.
+
 ---
 
 ## Step 3 — Export embeddings
