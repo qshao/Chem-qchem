@@ -7,6 +7,8 @@ import statistics
 import sys
 from pathlib import Path
 
+import dataclasses
+
 import torch
 
 from .adapt import resolve_adapt_config
@@ -108,6 +110,16 @@ def evaluate_teacher(teacher, encoder3d, holdout_examples: list, normalization: 
         [ex.conformer_coords for ex in usable],
         conformer_energies=[ex.conformer_energies for ex in usable],
     )
+    dev = next(encoder3d.parameters()).device
+    batch = dataclasses.replace(
+        batch,
+        atomic_numbers=batch.atomic_numbers.to(dev),
+        edge_index=batch.edge_index.to(dev),
+        positions=batch.positions.to(dev),
+        node_conformer_index=batch.node_conformer_index.to(dev),
+        conformer_molecule_index=batch.conformer_molecule_index.to(dev),
+        conformer_energy=batch.conformer_energy.to(dev) if batch.conformer_energy is not None else None,
+    )
     encoder3d.eval()
     teacher.eval()
     with torch.no_grad():
@@ -129,6 +141,9 @@ def evaluate_teacher(teacher, encoder3d, holdout_examples: list, normalization: 
     )
 
     node_t, edge_t, graph_t, _ = assemble_conformer_targets(usable)
+    node_t = node_t.to(dev)
+    edge_t = edge_t.to(dev)
+    graph_t = graph_t.to(dev)
     return {
         "chelpg": _pearson_mae(node_pred[:, 0], node_t[:, 0]),
         "energy": _pearson_mae(graph_pred[:, 0], graph_t[:, 0]),

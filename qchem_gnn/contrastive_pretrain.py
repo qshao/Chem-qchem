@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import time
@@ -164,9 +165,10 @@ class ContrastivePretrainingResult:
 
 
 def _supervised_loss_for_batch(model_output, examples, normalization) -> torch.Tensor:
-    node_target = torch.cat([example.node_target for example in examples], dim=0)
-    edge_target = torch.cat([example.edge_target for example in examples], dim=0)
-    graph_target = torch.stack([example.graph_target for example in examples], dim=0)
+    dev = normalization["node_mean"].device
+    node_target = torch.cat([example.node_target for example in examples], dim=0).to(dev)
+    edge_target = torch.cat([example.edge_target for example in examples], dim=0).to(dev)
+    graph_target = torch.stack([example.graph_target for example in examples], dim=0).to(dev)
     node_target, edge_target, graph_target = normalize_targets(
         node_target, edge_target, graph_target, normalization
     )
@@ -241,6 +243,14 @@ def contrastive_pretrain_on_dataset(
     proj_2d = ProjectionHead(hidden_dim, hidden_dim)
     proj_3d = ProjectionHead(hidden_dim_3d, hidden_dim)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    encoder3d.to(device)
+    teacher.to(device)
+    proj_2d.to(device)
+    proj_3d.to(device)
+    normalization = {k: v.to(device) for k, v in normalization.items()}
+
     params = list(model.parameters()) + list(encoder3d.parameters())
     params += list(teacher.parameters())
     params += list(proj_2d.parameters()) + list(proj_3d.parameters())
@@ -276,6 +286,14 @@ def contrastive_pretrain_on_dataset(
     # Shared forward pass for both train and validation steps.
     def _batch_forward(batch_examples: list) -> dict[str, torch.Tensor]:
         graph_batch = GraphBatch.from_graphs([ex.graph for ex in batch_examples])
+        graph_batch = dataclasses.replace(
+            graph_batch,
+            atomic_numbers=graph_batch.atomic_numbers.to(device),
+            edge_index=graph_batch.edge_index.to(device),
+            edge_attr=graph_batch.edge_attr.to(device),
+            batch=graph_batch.batch.to(device),
+            ptr=graph_batch.ptr.to(device),
+        )
         model_output = model(graph_batch)
         supervised = _supervised_loss_for_batch(model_output, batch_examples, normalization)
 
@@ -304,6 +322,15 @@ def contrastive_pretrain_on_dataset(
                 [ex.conformer_coords for ex in usable_examples],
                 conformer_energies=[ex.conformer_energies for ex in usable_examples],
             )
+            conformer_batch = dataclasses.replace(
+                conformer_batch,
+                atomic_numbers=conformer_batch.atomic_numbers.to(device),
+                edge_index=conformer_batch.edge_index.to(device),
+                positions=conformer_batch.positions.to(device),
+                node_conformer_index=conformer_batch.node_conformer_index.to(device),
+                conformer_molecule_index=conformer_batch.conformer_molecule_index.to(device),
+                conformer_energy=conformer_batch.conformer_energy.to(device) if conformer_batch.conformer_energy is not None else None,
+            )
             node_states_3d, conformer_embeddings = encoder3d.forward_with_nodes(
                 conformer_batch.atomic_numbers,
                 conformer_batch.edge_index,
@@ -317,6 +344,9 @@ def contrastive_pretrain_on_dataset(
                     node_states_3d, conformer_batch.edge_index, conformer_embeddings
                 )
                 node_t, edge_t, graph_t, _ = assemble_conformer_targets(usable_examples)
+                node_t = node_t.to(device)
+                edge_t = edge_t.to(device)
+                graph_t = graph_t.to(device)
                 node_t, edge_t, graph_t = normalize_targets(
                     node_t, edge_t, graph_t, normalization
                 )
@@ -430,6 +460,7 @@ def contrastive_pretrain_on_dataset(
         f"batch={batch_size} | "
         f"log_every={log_every} | "
         f"loss={contrastive_loss} | "
+        f"device={device} | "
         f"seed={seed}"
     )
     if checkpoint_path is not None:
@@ -521,6 +552,14 @@ def contrastive_pretrain_on_dataset(
     model.eval()
     with torch.no_grad():
         full_batch = GraphBatch.from_graphs([ex.graph for ex in examples])
+        full_batch = dataclasses.replace(
+            full_batch,
+            atomic_numbers=full_batch.atomic_numbers.to(device),
+            edge_index=full_batch.edge_index.to(device),
+            edge_attr=full_batch.edge_attr.to(device),
+            batch=full_batch.batch.to(device),
+            ptr=full_batch.ptr.to(device),
+        )
         embeddings = model.encode_graph_embeddings(full_batch)
     model.train()
 
