@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import h5py
-import pytest
 import torch
 
 from qchem_gnn.contrastive_pretrain import contrastive_pretrain_on_dataset
@@ -53,15 +52,15 @@ def test_teacher_loss_is_normalized_scale(tmp_path):
     try:
         dataset = _varied_target_dataset(tmp_path)
         result = contrastive_pretrain_on_dataset(
-        dataset,
-        hidden_dim=16,
-        hidden_dim_3d=16,
-        total_steps=4,
-        batch_size=4,
-        teacher_weight=1.0,
-        conformer_pool_mode="energy",
-        seed=0,
-    )
+            dataset,
+            hidden_dim=16,
+            hidden_dim_3d=16,
+            total_steps=4,
+            batch_size=4,
+            teacher_weight=1.0,
+            conformer_pool_mode="energy",
+            seed=0,
+        )
         assert result.loss_history
         # Pre-fix the raw-energy teacher MSE pushes this above 1e4; normalized it is O(10).
         assert max(result.loss_history) < 1e3
