@@ -75,10 +75,16 @@ def test_metrics_jsonl_written_with_val_keys(tmp_path):
     train_ds = make_tiny_quantum_dataset(tmp_path / "train")
     val_ds = make_tiny_quantum_dataset(tmp_path / "val")
     metrics_path = tmp_path / "run.metrics.jsonl"
-    contrastive_pretrain_on_dataset(
-        train_ds, val_dataset=val_ds, hidden_dim=16, hidden_dim_3d=16,
-        total_steps=4, batch_size=4, log_every=2, seed=0, metrics_path=metrics_path,
-    )
+    # Save and restore the global PyTorch RNG state so this test does not
+    # perturb the seed seen by subsequent tests that lack explicit seeding.
+    rng_state = torch.get_rng_state()
+    try:
+        contrastive_pretrain_on_dataset(
+            train_ds, val_dataset=val_ds, hidden_dim=16, hidden_dim_3d=16,
+            total_steps=4, batch_size=4, log_every=2, seed=0, metrics_path=metrics_path,
+        )
+    finally:
+        torch.set_rng_state(rng_state)
     lines = metrics_path.read_text().splitlines()
     assert len(lines) == 2  # steps 2 and 4
     rec = json.loads(lines[0])
@@ -92,10 +98,16 @@ def test_metrics_jsonl_written_with_val_keys(tmp_path):
 def test_metrics_jsonl_omits_val_keys_without_val_dataset(tmp_path):
     train_ds = make_tiny_quantum_dataset(tmp_path)
     metrics_path = tmp_path / "run.metrics.jsonl"
-    contrastive_pretrain_on_dataset(
-        train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
-        log_every=2, seed=0, metrics_path=metrics_path,
-    )
+    # Save and restore the global PyTorch RNG state so this test does not
+    # perturb the seed seen by subsequent tests that lack explicit seeding.
+    rng_state = torch.get_rng_state()
+    try:
+        contrastive_pretrain_on_dataset(
+            train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
+            log_every=2, seed=0, metrics_path=metrics_path,
+        )
+    finally:
+        torch.set_rng_state(rng_state)
     rec = json.loads(metrics_path.read_text().splitlines()[0])
     assert "train_loss" in rec
     assert "val_loss" not in rec
@@ -105,11 +117,17 @@ def test_per_term_breakdown_isolates_terms(tmp_path):
     # With teacher and contrastive weights zero, total ≈ supervised and the other terms ≈ 0.
     train_ds = make_tiny_quantum_dataset(tmp_path)
     metrics_path = tmp_path / "run.metrics.jsonl"
-    contrastive_pretrain_on_dataset(
-        train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
-        log_every=2, seed=0, teacher_weight=0.0, contrastive_weight=0.0,
-        metrics_path=metrics_path,
-    )
+    # Save and restore the global PyTorch RNG state so this test does not
+    # perturb the seed seen by subsequent tests that lack explicit seeding.
+    rng_state = torch.get_rng_state()
+    try:
+        contrastive_pretrain_on_dataset(
+            train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
+            log_every=2, seed=0, teacher_weight=0.0, contrastive_weight=0.0,
+            metrics_path=metrics_path,
+        )
+    finally:
+        torch.set_rng_state(rng_state)
     rec = json.loads(metrics_path.read_text().splitlines()[0])
     assert abs(rec["train_teacher"]) < 1e-6
     assert abs(rec["train_contrastive"]) < 1e-6
@@ -120,16 +138,22 @@ def test_metrics_jsonl_appends_on_resume(tmp_path):
     train_ds = make_tiny_quantum_dataset(tmp_path)
     metrics_path = tmp_path / "run.metrics.jsonl"
     ckpt = tmp_path / "run.ckpt.pt"
-    contrastive_pretrain_on_dataset(
-        train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
-        log_every=2, seed=0, checkpoint_path=ckpt, checkpoint_every=2,
-        metrics_path=metrics_path,
-    )
-    first = len(metrics_path.read_text().splitlines())
-    contrastive_pretrain_on_dataset(
-        train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=4, batch_size=4,
-        log_every=2, seed=0, checkpoint_path=ckpt, checkpoint_every=2, resume=True,
-        metrics_path=metrics_path,
-    )
+    # Save and restore the global PyTorch RNG state so this test does not
+    # perturb the seed seen by subsequent tests that lack explicit seeding.
+    rng_state = torch.get_rng_state()
+    try:
+        contrastive_pretrain_on_dataset(
+            train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
+            log_every=2, seed=0, checkpoint_path=ckpt, checkpoint_every=2,
+            metrics_path=metrics_path,
+        )
+        first = len(metrics_path.read_text().splitlines())
+        contrastive_pretrain_on_dataset(
+            train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=4, batch_size=4,
+            log_every=2, seed=0, checkpoint_path=ckpt, checkpoint_every=2, resume=True,
+            metrics_path=metrics_path,
+        )
+    finally:
+        torch.set_rng_state(rng_state)
     second = len(metrics_path.read_text().splitlines())
     assert second > first  # appended, not truncated
