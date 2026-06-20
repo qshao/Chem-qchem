@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -96,6 +98,17 @@ def _load_checkpoint(path: Path) -> dict:
     return payload
 
 
+def _append_metrics_line(path: Path, record: dict) -> None:
+    """Append one JSON record to the metrics file, flushed. Never fatal."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a") as handle:
+            handle.write(json.dumps(record) + "\n")
+            handle.flush()
+    except OSError as exc:  # logging must never crash training
+        warnings.warn(f"could not write metrics to {path}: {exc}", stacklevel=2)
+
+
 def _example_scaffold_key(example) -> int:
     key = getattr(example, "scaffold_key", None)
     if key is not None:
@@ -173,6 +186,7 @@ def contrastive_pretrain_on_dataset(
     batch_size: int = 8,
     log_every: int = 100,
     val_dataset: MinimalQuantumDataset | None = None,
+    metrics_path: Path | None = None,
     learning_rate: float = 0.01,
     supervised_weight: float = 1.0,
     contrastive_weight: float = 1.0,
@@ -196,6 +210,7 @@ def contrastive_pretrain_on_dataset(
     node_targets = int(examples[0].node_target.shape[-1])
 
     checkpoint_path = Path(checkpoint_path) if checkpoint_path is not None else None
+    metrics_path = Path(metrics_path) if metrics_path is not None else None
     do_resume = resume and checkpoint_path is not None and checkpoint_path.exists()
 
     if not do_resume:
@@ -259,7 +274,7 @@ def contrastive_pretrain_on_dataset(
     )
 
     # Shared forward pass for both train and validation steps.
-    def _batch_forward(batch_examples: list) -> tuple[torch.Tensor, torch.Tensor]:
+    def _batch_forward(batch_examples: list) -> dict[str, torch.Tensor]:
         graph_batch = GraphBatch.from_graphs([ex.graph for ex in batch_examples])
         model_output = model(graph_batch)
         supervised = _supervised_loss_for_batch(model_output, batch_examples, normalization)
@@ -342,7 +357,12 @@ def contrastive_pretrain_on_dataset(
             + contrastive_weight * contrastive
             + teacher_weight * teacher_term
         )
-        return total, contrastive
+        return {
+            "total": total,
+            "supervised": supervised,
+            "contrastive": contrastive,
+            "teacher": teacher_term,
+        }
 
     loss_history: list[float] = []
     contrastive_loss_history: list[float] = []
@@ -393,12 +413,13 @@ def contrastive_pretrain_on_dataset(
             },
         )
 
+    _TERMS = ("total", "supervised", "contrastive", "teacher")
     step = start_step
-    recent_loss = 0.0
-    recent_contrastive = 0.0
+    recent = {term: 0.0 for term in _TERMS}
     recent_n = 0
     val_examples = val_dataset.examples if val_dataset is not None else []
     _modules = (model, encoder3d, teacher, proj_2d, proj_3d)
+    train_start = time.perf_counter()
 
     while step < total_steps:
         if cycle_start >= num_examples:
@@ -410,46 +431,70 @@ def contrastive_pretrain_on_dataset(
         cycle_start = end
         batch_examples = [examples[i] for i in batch_indices]
 
-        total_loss, batch_contrastive = _batch_forward(batch_examples)
+        out = _batch_forward(batch_examples)
+        total_loss = out["total"]
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
 
         step += 1
-        loss_val = float(total_loss.item())
-        contr_val = float(batch_contrastive.item())
-        loss_history.append(loss_val)
-        contrastive_loss_history.append(contr_val)
-        recent_loss += loss_val
-        recent_contrastive += contr_val
+        loss_history.append(float(total_loss.item()))
+        contrastive_loss_history.append(float(out["contrastive"].item()))
+        for term in _TERMS:
+            recent[term] += float(out[term].item())
         recent_n += 1
 
         if step % log_every == 0 or step == total_steps:
-            avg_loss = recent_loss / recent_n
-            recent_loss = 0.0
-            recent_contrastive = 0.0
+            train_avg = {term: recent[term] / recent_n for term in _TERMS}
+            recent = {term: 0.0 for term in _TERMS}
             recent_n = 0
 
+            val_avg = None
             if val_examples:
                 for mod in _modules:
                     mod.eval()
-                val_total = 0.0
+                val_sum = {term: 0.0 for term in _TERMS}
                 val_n = 0
                 with torch.no_grad():
                     for vstart in range(0, len(val_examples), batch_size):
-                        vtotal, _ = _batch_forward(val_examples[vstart : vstart + batch_size])
-                        val_total += float(vtotal.item())
+                        vout = _batch_forward(val_examples[vstart : vstart + batch_size])
+                        for term in _TERMS:
+                            val_sum[term] += float(vout[term].item())
                         val_n += 1
                 for mod in _modules:
                     mod.train()
-                val_loss = val_total / max(val_n, 1)
-                print(
-                    f"step {step:6d}/{total_steps}"
-                    f" | train_loss: {avg_loss:.4f}"
-                    f" | val_loss: {val_loss:.4f}"
-                )
-            else:
-                print(f"step {step:6d}/{total_steps} | train_loss: {avg_loss:.4f}")
+                val_avg = {term: val_sum[term] / max(val_n, 1) for term in _TERMS}
+
+            line = (
+                f"step {step:6d}/{total_steps}"
+                f" | loss {train_avg['total']:.4f}"
+                f" (sup {train_avg['supervised']:.4f}"
+                f" / con {train_avg['contrastive']:.4f}"
+                f" / tea {train_avg['teacher']:.4f})"
+            )
+            if val_avg is not None:
+                line += f" | val {val_avg['total']:.4f}"
+            print(line)
+
+            if metrics_path is not None:
+                wall = time.perf_counter() - train_start
+                completed = step - start_step
+                record = {
+                    "step": step,
+                    "total_steps": total_steps,
+                    "train_loss": train_avg["total"],
+                    "train_supervised": train_avg["supervised"],
+                    "train_contrastive": train_avg["contrastive"],
+                    "train_teacher": train_avg["teacher"],
+                    "steps_per_sec": completed / wall if wall > 0 else 0.0,
+                    "wall_seconds": wall,
+                }
+                if val_avg is not None:
+                    record["val_loss"] = val_avg["total"]
+                    record["val_supervised"] = val_avg["supervised"]
+                    record["val_contrastive"] = val_avg["contrastive"]
+                    record["val_teacher"] = val_avg["teacher"]
+                _append_metrics_line(metrics_path, record)
 
         if checkpoint_path is not None and (
             step % checkpoint_every == 0 or step == total_steps

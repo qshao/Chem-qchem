@@ -477,6 +477,7 @@ def run_contrastive_pretrain(args) -> int:
 
     result = contrastive_pretrain_on_dataset(
         dataset,
+        metrics_path=Path(args.output).with_suffix(".metrics.jsonl"),
         hidden_dim=args.hidden_dim,
         num_message_passing_steps=args.message_passing_steps,
         hidden_dim_3d=args.hidden_dim_3d,

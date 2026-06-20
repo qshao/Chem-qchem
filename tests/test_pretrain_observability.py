@@ -1,11 +1,14 @@
+import json
 from pathlib import Path
 
 import h5py
+import pytest
 import torch
 
 from qchem_gnn.contrastive_pretrain import contrastive_pretrain_on_dataset
 from qchem_gnn.quantum_data import load_quantum_zinc_dataset
 from tests._quantum_fixtures import write_synthetic_results_h5
+from tests._validation_fixtures import make_tiny_quantum_dataset
 
 
 def _varied_target_dataset(tmp_path):
@@ -66,3 +69,67 @@ def test_teacher_loss_is_normalized_scale(tmp_path):
         assert max(result.loss_history) < 1e3
     finally:
         torch.set_rng_state(rng_state)
+
+
+def test_metrics_jsonl_written_with_val_keys(tmp_path):
+    train_ds = make_tiny_quantum_dataset(tmp_path / "train")
+    val_ds = make_tiny_quantum_dataset(tmp_path / "val")
+    metrics_path = tmp_path / "run.metrics.jsonl"
+    contrastive_pretrain_on_dataset(
+        train_ds, val_dataset=val_ds, hidden_dim=16, hidden_dim_3d=16,
+        total_steps=4, batch_size=4, log_every=2, seed=0, metrics_path=metrics_path,
+    )
+    lines = metrics_path.read_text().splitlines()
+    assert len(lines) == 2  # steps 2 and 4
+    rec = json.loads(lines[0])
+    for key in ("step", "total_steps", "train_loss", "train_supervised",
+                "train_contrastive", "train_teacher", "steps_per_sec", "wall_seconds",
+                "val_loss", "val_supervised", "val_contrastive", "val_teacher"):
+        assert key in rec
+    assert rec["step"] == 2
+
+
+def test_metrics_jsonl_omits_val_keys_without_val_dataset(tmp_path):
+    train_ds = make_tiny_quantum_dataset(tmp_path)
+    metrics_path = tmp_path / "run.metrics.jsonl"
+    contrastive_pretrain_on_dataset(
+        train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
+        log_every=2, seed=0, metrics_path=metrics_path,
+    )
+    rec = json.loads(metrics_path.read_text().splitlines()[0])
+    assert "train_loss" in rec
+    assert "val_loss" not in rec
+
+
+def test_per_term_breakdown_isolates_terms(tmp_path):
+    # With teacher and contrastive weights zero, total ≈ supervised and the other terms ≈ 0.
+    train_ds = make_tiny_quantum_dataset(tmp_path)
+    metrics_path = tmp_path / "run.metrics.jsonl"
+    contrastive_pretrain_on_dataset(
+        train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
+        log_every=2, seed=0, teacher_weight=0.0, contrastive_weight=0.0,
+        metrics_path=metrics_path,
+    )
+    rec = json.loads(metrics_path.read_text().splitlines()[0])
+    assert abs(rec["train_teacher"]) < 1e-6
+    assert abs(rec["train_contrastive"]) < 1e-6
+    assert rec["train_loss"] == pytest.approx(rec["train_supervised"], rel=1e-5, abs=1e-6)
+
+
+def test_metrics_jsonl_appends_on_resume(tmp_path):
+    train_ds = make_tiny_quantum_dataset(tmp_path)
+    metrics_path = tmp_path / "run.metrics.jsonl"
+    ckpt = tmp_path / "run.ckpt.pt"
+    contrastive_pretrain_on_dataset(
+        train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4,
+        log_every=2, seed=0, checkpoint_path=ckpt, checkpoint_every=2,
+        metrics_path=metrics_path,
+    )
+    first = len(metrics_path.read_text().splitlines())
+    contrastive_pretrain_on_dataset(
+        train_ds, hidden_dim=16, hidden_dim_3d=16, total_steps=4, batch_size=4,
+        log_every=2, seed=0, checkpoint_path=ckpt, checkpoint_every=2, resume=True,
+        metrics_path=metrics_path,
+    )
+    second = len(metrics_path.read_text().splitlines())
+    assert second > first  # appended, not truncated

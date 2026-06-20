@@ -345,9 +345,12 @@ def run_one_cell(
         intrinsic_row["properties"] = json.loads(intrinsic_path.read_text())
     else:
         checkpoint_path = out_dir / f"{arm_name}_s{seed}.ckpt.pt"
+        metrics_path = out_dir / f"{arm_name}_s{seed}.metrics.jsonl"
         resume = bool(pretrain_cfg.get("resume", False)) and not overwrite
         if overwrite and checkpoint_path.exists():
             checkpoint_path.unlink()
+        if overwrite and metrics_path.exists():
+            metrics_path.unlink()
         try:
             result = contrastive_pretrain_on_dataset(
                 pretrain_ds,
@@ -355,6 +358,7 @@ def run_one_cell(
                 checkpoint_path=checkpoint_path,
                 checkpoint_every=int(pretrain_cfg.get("checkpoint_every", 1000)),
                 resume=resume,
+                metrics_path=metrics_path,
                 **_pretrain_kwargs(pretrain_cfg, arm_overrides, seed),
             )
         except CheckpointMismatchError:
