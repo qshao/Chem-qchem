@@ -48,7 +48,7 @@ def test_contrastive_pretrain_runs_and_reduces_loss(tmp_path: Path):
         hidden_dim=16,
         num_message_passing_steps=2,
         hidden_dim_3d=16,
-        epochs=120,
+        total_steps=120,
         batch_size=4,
         learning_rate=0.01,
         contrastive_weight=1.0,
@@ -73,7 +73,7 @@ def test_contrastive_pretrain_vicreg_runs(tmp_path):
         dataset,
         hidden_dim=16,
         hidden_dim_3d=16,
-        epochs=2,
+        total_steps=2,
         batch_size=4,
         teacher_weight=1.0,
         conformer_pool_mode="energy",
@@ -87,7 +87,7 @@ def test_contrastive_pretrain_vicreg_runs(tmp_path):
 def test_contrastive_pretrain_infonce_still_default(tmp_path):
     dataset = make_tiny_quantum_dataset(tmp_path)
     result = contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+        dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4, seed=0,
     )
     assert result.loss_history
     assert math.isfinite(result.loss_history[-1])
@@ -102,7 +102,7 @@ def test_contrastive_pretrain_scaffold_mask_runs(tmp_path):
         dataset,
         hidden_dim=16,
         hidden_dim_3d=16,
-        epochs=2,
+        total_steps=2,
         batch_size=4,
         teacher_weight=1.0,
         conformer_pool_mode="energy",
@@ -117,7 +117,7 @@ def test_contrastive_pretrain_scaffold_mask_default_false(tmp_path):
     # Omitting use_scaffold_negmask produces the same result as use_scaffold_negmask=False.
     dataset = make_tiny_quantum_dataset(tmp_path)
     result = contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+        dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4, seed=0,
     )
     assert result.loss_history
     assert math.isfinite(result.loss_history[-1])

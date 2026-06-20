@@ -77,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     contrastive.add_argument("--use-results", action="store_true", default=argparse.SUPPRESS, help="Load HDF5 quantum targets when available")
     contrastive.add_argument("--limit", type=int, help="Maximum molecules to load")
     contrastive.add_argument("--limit-per-shard", type=int, help="Maximum molecules to load per shard in dataset-root mode")
-    contrastive.add_argument("--epochs", type=int, help="Training epochs")
+    contrastive.add_argument("--total-steps", type=int, dest="total_steps", help="Total training steps")
     contrastive.add_argument("--hidden-dim", type=int, help="2D encoder hidden dimension")
     contrastive.add_argument("--message-passing-steps", type=int, help="2D message passing steps")
     contrastive.add_argument("--hidden-dim-3d", type=int, help="3D teacher hidden dimension")
@@ -194,6 +194,7 @@ def _config_from_args(args) -> dict[str, object]:
         if args.command == "contrastive-pretrain":
             contrastive_cfg: dict[str, object] = {}
             for arg_name, key in (
+                ("total_steps", "total_steps"),
                 ("hidden_dim_3d", "hidden_dim_3d"),
                 ("message_passing_steps_3d", "message_passing_steps_3d"),
                 ("num_rbf", "num_rbf"),
@@ -482,7 +483,7 @@ def run_contrastive_pretrain(args) -> int:
         num_rbf=args.num_rbf,
         cutoff=args.cutoff,
         num_message_passing_steps_3d=args.message_passing_steps_3d,
-        epochs=args.epochs,
+        total_steps=args.total_steps,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         supervised_weight=args.supervised_weight,
@@ -510,7 +511,7 @@ def run_contrastive_pretrain(args) -> int:
         embeddings=result.embeddings,
         model_state_dict=result.model.state_dict(),
         optimizer_state_dict=result.optimizer_state_dict,
-        epoch=result.epoch,
+        epoch=result.global_step,
         global_step=result.global_step,
         target_normalization=result.target_normalization,
         dataset_config=current_config,
@@ -525,7 +526,7 @@ def run_contrastive_pretrain(args) -> int:
         run_metadata={
             "num_examples": len(dataset),
             "num_skipped": len(dataset.skipped_mol_ids),
-            "epochs": args.epochs,
+            "total_steps": args.total_steps,
             "contrastive_weight": args.contrastive_weight,
             "contrastive_loss_history": result.contrastive_loss_history,
             **run_metadata,

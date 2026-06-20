@@ -10,7 +10,7 @@ def test_pretrain_result_exposes_teacher_and_encoder(tmp_path):
         dataset,
         hidden_dim=16,
         hidden_dim_3d=16,
-        epochs=2,
+        total_steps=2,
         batch_size=4,
         teacher_weight=1.0,
         conformer_pool_mode="energy",

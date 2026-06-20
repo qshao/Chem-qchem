@@ -259,11 +259,12 @@ pretrain:
   message_passing_steps: 3
   hidden_dim_3d: 64
   message_passing_steps_3d: 3
-  epochs: 200
+  total_steps: 20000
+  log_every: 100
   learning_rate: 0.001
   batch_size: 16
   resume: false
-  checkpoint_every: 10
+  checkpoint_every: 1000
 
 arms:
   quantum_scaffold:

@@ -42,7 +42,7 @@ def test_contrastive_with_teacher_runs(tmp_path):
         dataset,
         hidden_dim=16,
         hidden_dim_3d=16,
-        epochs=3,
+        total_steps=3,
         batch_size=4,
         teacher_weight=1.0,
         conformer_pool_mode="energy",

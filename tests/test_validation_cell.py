@@ -22,7 +22,7 @@ def _tiny_adapt_cfg(tmp_path):
 
 
 def _pretrain_cfg():
-    return {"hidden_dim": 16, "message_passing_steps": 2, "epochs": 2,
+    return {"hidden_dim": 16, "message_passing_steps": 2, "total_steps": 2,
             "learning_rate": 0.01, "batch_size": 4, "hidden_dim_3d": 16,
             "message_passing_steps_3d": 2}
 

@@ -6,7 +6,7 @@ from tests._validation_fixtures import make_tiny_quantum_dataset
 _PRETRAIN_CFG = {
     "hidden_dim": 16,
     "message_passing_steps": 2,
-    "epochs": 2,
+    "total_steps": 2,
     "learning_rate": 0.01,
     "resume": True,
     "checkpoint_every": 5,

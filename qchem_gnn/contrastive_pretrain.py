@@ -21,7 +21,7 @@ from .teacher_heads import QuantumTeacherHeads, assemble_conformer_targets, teac
 from .eval import scaffold_key_from_smiles, scaffold_mask_from_keys
 
 
-PRETRAIN_CHECKPOINT_VERSION = 1
+PRETRAIN_CHECKPOINT_VERSION = 2
 
 _FINGERPRINT_FIELDS = (
     "hidden_dim",
@@ -145,7 +145,6 @@ class ContrastivePretrainingResult:
     embeddings: torch.Tensor
     target_normalization: dict[str, torch.Tensor]
     optimizer_state_dict: dict[str, object]
-    epoch: int
     global_step: int
     teacher: nn.Module | None = None
     encoder3d: nn.Module | None = None
@@ -170,8 +169,10 @@ def contrastive_pretrain_on_dataset(
     num_rbf: int = 16,
     cutoff: float = 5.0,
     num_message_passing_steps_3d: int = 2,
-    epochs: int = 200,
+    total_steps: int = 10000,
     batch_size: int = 8,
+    log_every: int = 100,
+    val_dataset: MinimalQuantumDataset | None = None,
     learning_rate: float = 0.01,
     supervised_weight: float = 1.0,
     contrastive_weight: float = 1.0,
@@ -186,7 +187,7 @@ def contrastive_pretrain_on_dataset(
     use_scaffold_negmask: bool = False,
     seed: int = 0,
     checkpoint_path: Path | None = None,
-    checkpoint_every: int = 10,
+    checkpoint_every: int = 1000,
     resume: bool = False,
 ) -> ContrastivePretrainingResult:
     examples = dataset.examples
@@ -197,8 +198,6 @@ def contrastive_pretrain_on_dataset(
     checkpoint_path = Path(checkpoint_path) if checkpoint_path is not None else None
     do_resume = resume and checkpoint_path is not None and checkpoint_path.exists()
 
-    # Fresh runs seed BEFORE construction (preserving prior RNG behavior); resume
-    # runs restore the RNG stream AFTER construction (below).
     if not do_resume:
         torch.manual_seed(seed)
         if resume and checkpoint_path is not None:
@@ -259,9 +258,94 @@ def contrastive_pretrain_on_dataset(
         }
     )
 
+    # Shared forward pass for both train and validation steps.
+    def _batch_forward(batch_examples: list) -> tuple[torch.Tensor, torch.Tensor]:
+        graph_batch = GraphBatch.from_graphs([ex.graph for ex in batch_examples])
+        model_output = model(graph_batch)
+        supervised = _supervised_loss_for_batch(model_output, batch_examples, normalization)
+
+        contrastive = torch.zeros((), dtype=supervised.dtype, device=supervised.device)
+        teacher_term = torch.zeros((), dtype=supervised.dtype, device=supervised.device)
+        usable = [
+            (pos, ex)
+            for pos, ex in enumerate(batch_examples)
+            if ex.conformer_coords and ex.conformer_node_targets is not None
+        ]
+        if len(usable) >= 2:
+            coords_index = [pos for pos, _ in usable]
+            usable_examples = [ex for _, ex in usable]
+            batch_mask: torch.Tensor | None = None
+            if use_scaffold_negmask:
+                keys = [_example_scaffold_key(ex) for ex in usable_examples]
+                batch_mask = scaffold_mask_from_keys(keys).to(supervised.device)
+                if batch_mask.all(dim=1).any():
+                    warnings.warn(
+                        "scaffold negmask: at least one molecule has all "
+                        "negatives masked in this batch",
+                        stacklevel=2,
+                    )
+            conformer_batch = ConformerEncoderBatch.from_molecule_conformers(
+                [ex.graph for ex in usable_examples],
+                [ex.conformer_coords for ex in usable_examples],
+                conformer_energies=[ex.conformer_energies for ex in usable_examples],
+            )
+            node_states_3d, conformer_embeddings = encoder3d.forward_with_nodes(
+                conformer_batch.atomic_numbers,
+                conformer_batch.edge_index,
+                conformer_batch.positions,
+                conformer_batch.node_conformer_index,
+                conformer_batch.num_conformers,
+            )
+
+            if teacher_weight:
+                node_pred, edge_pred, graph_pred = teacher(
+                    node_states_3d, conformer_batch.edge_index, conformer_embeddings
+                )
+                node_t, edge_t, graph_t, _ = assemble_conformer_targets(usable_examples)
+                teacher_term = teacher_loss(
+                    node_pred, edge_pred, graph_pred, node_t, edge_t, graph_t
+                )
+
+            if contrastive_weight:
+                molecule_3d = _boltzmann_pool_molecules(
+                    conformer_embeddings,
+                    conformer_batch.conformer_molecule_index,
+                    conformer_batch.conformer_energy,
+                    conformer_batch.num_molecules,
+                    temperature=energy_temperature,
+                    mode=conformer_pool_mode,
+                )
+                molecule_2d = model_output.mol_embedding[coords_index]
+                view_2d = proj_2d(molecule_2d)
+                view_3d = proj_3d(molecule_3d)
+                if contrastive_loss == "vicreg":
+                    contrastive = vicreg_loss(
+                        view_2d,
+                        view_3d,
+                        sim_weight=vicreg_sim_weight,
+                        var_weight=vicreg_var_weight,
+                        cov_weight=vicreg_cov_weight,
+                    )
+                elif contrastive_loss == "infonce":
+                    contrastive = info_nce_contrastive_loss(
+                        view_2d, view_3d, temperature=temperature,
+                        negative_mask=batch_mask,
+                    )
+                else:
+                    raise ValueError(f"unknown contrastive_loss: {contrastive_loss!r}")
+
+        total = (
+            supervised_weight * supervised
+            + contrastive_weight * contrastive
+            + teacher_weight * teacher_term
+        )
+        return total, contrastive
+
     loss_history: list[float] = []
     contrastive_loss_history: list[float] = []
-    start_epoch = 0
+    start_step = 0
+    cycle_order = torch.randperm(num_examples)
+    cycle_start = 0
 
     if do_resume:
         payload = _load_checkpoint(checkpoint_path)
@@ -275,20 +359,24 @@ def contrastive_pretrain_on_dataset(
         torch.set_rng_state(payload["rng_state"])
         loss_history = list(payload["loss_history"])
         contrastive_loss_history = list(payload["contrastive_loss_history"])
-        start_epoch = int(payload["epoch"])
-        if epochs < start_epoch:
+        start_step = int(payload["step"])
+        cycle_order = torch.tensor(payload["cycle_order"])
+        cycle_start = int(payload["cycle_start"])
+        if total_steps <= start_step:
             warnings.warn(
-                f"resume: checkpoint epoch ({start_epoch}) exceeds requested epochs "
-                f"({epochs}); no training will run and the checkpoint model will be returned.",
+                f"resume: checkpoint step ({start_step}) >= requested total_steps "
+                f"({total_steps}); no training will run.",
                 stacklevel=2,
             )
 
-    def _write_checkpoint(completed_epochs: int) -> None:
+    def _write_checkpoint(completed_steps: int, co: torch.Tensor, cs: int) -> None:
         _atomic_save_checkpoint(
             checkpoint_path,
             {
                 "version": PRETRAIN_CHECKPOINT_VERSION,
-                "epoch": completed_epochs,
+                "step": completed_steps,
+                "cycle_order": co.tolist(),
+                "cycle_start": cs,
                 "model_state_dict": model.state_dict(),
                 "encoder3d_state_dict": encoder3d.state_dict(),
                 "teacher_state_dict": teacher.state_dict(),
@@ -302,112 +390,68 @@ def contrastive_pretrain_on_dataset(
             },
         )
 
-    for epoch in range(start_epoch, epochs):
-        order = torch.randperm(num_examples)
-        epoch_total = 0.0
-        epoch_contrastive = 0.0
-        num_batches = 0
+    step = start_step
+    recent_loss = 0.0
+    recent_contrastive = 0.0
+    recent_n = 0
+    val_examples = val_dataset.examples if val_dataset is not None else []
+    _modules = (model, encoder3d, teacher, proj_2d, proj_3d)
 
-        for start in range(0, num_examples, batch_size):
-            batch_indices = order[start : start + batch_size].tolist()
-            batch_examples = [examples[i] for i in batch_indices]
+    while step < total_steps:
+        if cycle_start >= num_examples:
+            cycle_start = 0
+            cycle_order = torch.randperm(num_examples)
 
-            graph_batch = GraphBatch.from_graphs([ex.graph for ex in batch_examples])
-            model_output = model(graph_batch)
-            supervised = _supervised_loss_for_batch(model_output, batch_examples, normalization)
+        end = min(cycle_start + batch_size, num_examples)
+        batch_indices = cycle_order[cycle_start:end].tolist()
+        cycle_start = end
+        batch_examples = [examples[i] for i in batch_indices]
 
-            contrastive = torch.zeros((), dtype=supervised.dtype, device=supervised.device)
-            teacher_term = torch.zeros((), dtype=supervised.dtype, device=supervised.device)
-            usable = [
-                (pos, ex)
-                for pos, ex in enumerate(batch_examples)
-                if ex.conformer_coords and ex.conformer_node_targets is not None
-            ]
-            if len(usable) >= 2:
-                coords_index = [pos for pos, _ in usable]
-                usable_examples = [ex for _, ex in usable]
-                batch_mask: torch.Tensor | None = None
-                if use_scaffold_negmask:
-                    keys = [_example_scaffold_key(ex) for ex in usable_examples]
-                    batch_mask = scaffold_mask_from_keys(keys).to(supervised.device)
-                    if batch_mask.all(dim=1).any():
-                        warnings.warn(
-                            "scaffold negmask: at least one molecule has all "
-                            "negatives masked in this batch",
-                            stacklevel=2,
-                        )
-                conformer_batch = ConformerEncoderBatch.from_molecule_conformers(
-                    [ex.graph for ex in usable_examples],
-                    [ex.conformer_coords for ex in usable_examples],
-                    conformer_energies=[ex.conformer_energies for ex in usable_examples],
+        total_loss, batch_contrastive = _batch_forward(batch_examples)
+        optimizer.zero_grad()
+        total_loss.backward()
+        optimizer.step()
+
+        step += 1
+        loss_val = float(total_loss.item())
+        contr_val = float(batch_contrastive.item())
+        loss_history.append(loss_val)
+        contrastive_loss_history.append(contr_val)
+        recent_loss += loss_val
+        recent_contrastive += contr_val
+        recent_n += 1
+
+        if step % log_every == 0 or step == total_steps:
+            avg_loss = recent_loss / recent_n
+            recent_loss = 0.0
+            recent_contrastive = 0.0
+            recent_n = 0
+
+            if val_examples:
+                for mod in _modules:
+                    mod.eval()
+                val_total = 0.0
+                val_n = 0
+                with torch.no_grad():
+                    for vstart in range(0, len(val_examples), batch_size):
+                        vtotal, _ = _batch_forward(val_examples[vstart : vstart + batch_size])
+                        val_total += float(vtotal.item())
+                        val_n += 1
+                for mod in _modules:
+                    mod.train()
+                val_loss = val_total / max(val_n, 1)
+                print(
+                    f"step {step:6d}/{total_steps}"
+                    f" | train_loss: {avg_loss:.4f}"
+                    f" | val_loss: {val_loss:.4f}"
                 )
-                node_states_3d, conformer_embeddings = encoder3d.forward_with_nodes(
-                    conformer_batch.atomic_numbers,
-                    conformer_batch.edge_index,
-                    conformer_batch.positions,
-                    conformer_batch.node_conformer_index,
-                    conformer_batch.num_conformers,
-                )
-
-                # Teacher: per-conformer quantum regression.
-                if teacher_weight:
-                    node_pred, edge_pred, graph_pred = teacher(
-                        node_states_3d, conformer_batch.edge_index, conformer_embeddings
-                    )
-                    node_t, edge_t, graph_t, _ = assemble_conformer_targets(usable_examples)
-                    teacher_term = teacher_loss(
-                        node_pred, edge_pred, graph_pred, node_t, edge_t, graph_t
-                    )
-
-                # Contrastive: align 2D molecule embedding to Boltzmann-pooled 3D embedding.
-                if contrastive_weight:
-                    molecule_3d = _boltzmann_pool_molecules(
-                        conformer_embeddings,
-                        conformer_batch.conformer_molecule_index,
-                        conformer_batch.conformer_energy,
-                        conformer_batch.num_molecules,
-                        temperature=energy_temperature,
-                        mode=conformer_pool_mode,
-                    )
-                    molecule_2d = model_output.mol_embedding[coords_index]
-                    view_2d = proj_2d(molecule_2d)
-                    view_3d = proj_3d(molecule_3d)
-                    if contrastive_loss == "vicreg":
-                        contrastive = vicreg_loss(
-                            view_2d,
-                            view_3d,
-                            sim_weight=vicreg_sim_weight,
-                            var_weight=vicreg_var_weight,
-                            cov_weight=vicreg_cov_weight,
-                        )
-                    elif contrastive_loss == "infonce":
-                        contrastive = info_nce_contrastive_loss(
-                            view_2d, view_3d, temperature=temperature,
-                            negative_mask=batch_mask,
-                        )
-                    else:
-                        raise ValueError(f"unknown contrastive_loss: {contrastive_loss!r}")
-
-            total = (
-                supervised_weight * supervised
-                + contrastive_weight * contrastive
-                + teacher_weight * teacher_term
-            )
-            optimizer.zero_grad()
-            total.backward()
-            optimizer.step()
-
-            epoch_total += float(total.item())
-            epoch_contrastive += float(contrastive.item())
-            num_batches += 1
-
-        loss_history.append(epoch_total / max(num_batches, 1))
-        contrastive_loss_history.append(epoch_contrastive / max(num_batches, 1))
+            else:
+                print(f"step {step:6d}/{total_steps} | train_loss: {avg_loss:.4f}")
 
         if checkpoint_path is not None and (
-            (epoch + 1) % checkpoint_every == 0 or epoch + 1 == epochs
+            step % checkpoint_every == 0 or step == total_steps
         ):
-            _write_checkpoint(epoch + 1)
+            _write_checkpoint(step, cycle_order, cycle_start)
 
     model.eval()
     with torch.no_grad():
@@ -422,8 +466,7 @@ def contrastive_pretrain_on_dataset(
         embeddings=embeddings,
         target_normalization=normalization,
         optimizer_state_dict=optimizer.state_dict(),
-        epoch=epochs,
-        global_step=(epochs - start_epoch) * ((num_examples + batch_size - 1) // batch_size),
+        global_step=step,
         teacher=teacher,
         encoder3d=encoder3d,
     )
@@ -433,7 +476,7 @@ def run_contrastive_ablation(
     dataset: MinimalQuantumDataset,
     *,
     hidden_dim: int = 32,
-    epochs: int = 200,
+    total_steps: int = 200,
     batch_size: int = 8,
     contrastive_weight: float = 1.0,
     seed: int = 0,
@@ -452,7 +495,7 @@ def run_contrastive_ablation(
         result = contrastive_pretrain_on_dataset(
             dataset,
             hidden_dim=hidden_dim,
-            epochs=epochs,
+            total_steps=total_steps,
             batch_size=batch_size,
             contrastive_weight=weight,
             seed=seed,

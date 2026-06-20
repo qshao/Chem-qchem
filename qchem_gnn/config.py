@@ -31,6 +31,7 @@ VALID_SECTION_KEYS = {
     "model": {"hidden_dim", "message_passing_steps"},
     "training": {"epochs", "learning_rate", "aux_weight", "resume_from"},
     "contrastive": {
+        "total_steps",
         "batch_size",
         "supervised_weight",
         "contrastive_weight",
@@ -79,6 +80,7 @@ DEFAULT_CONFIG: ConfigDict = {
         "resume_from": None,
     },
     "contrastive": {
+        "total_steps": 10000,
         "batch_size": 8,
         "supervised_weight": 1.0,
         "contrastive_weight": 1.0,
@@ -214,6 +216,7 @@ def _validate_config(config: ConfigDict) -> None:
     downstream["epochs"] = _ensure_positive_int(downstream["epochs"], "downstream.epochs")
     downstream["learning_rate"] = _ensure_positive_float(downstream["learning_rate"], "downstream.learning_rate")
     downstream["seed"] = _coerce_int(downstream["seed"], "downstream.seed")
+    contrastive["total_steps"] = _ensure_positive_int(contrastive["total_steps"], "contrastive.total_steps")
     contrastive["batch_size"] = _ensure_positive_int(contrastive["batch_size"], "contrastive.batch_size")
     contrastive["hidden_dim_3d"] = _ensure_positive_int(contrastive["hidden_dim_3d"], "contrastive.hidden_dim_3d")
     contrastive["num_rbf"] = _ensure_positive_int(contrastive["num_rbf"], "contrastive.num_rbf")
@@ -401,6 +404,7 @@ def config_to_namespace(config: ConfigDict) -> Namespace:
             contrastive = config["contrastive"]
             values.update(
                 {
+                    "total_steps": _coerce_int(contrastive["total_steps"], "contrastive.total_steps"),
                     "batch_size": _coerce_int(contrastive["batch_size"], "contrastive.batch_size"),
                     "supervised_weight": _coerce_float(contrastive["supervised_weight"], "contrastive.supervised_weight"),
                     "contrastive_weight": _coerce_float(contrastive["contrastive_weight"], "contrastive.contrastive_weight"),

@@ -18,7 +18,7 @@ def test_run_validation_writes_report(tmp_path):
     dataset = make_tiny_quantum_dataset(tmp_path)
     out_dir = tmp_path / "validate"
     cfg = {
-        "pretrain": {"hidden_dim": 16, "message_passing_steps": 2, "epochs": 2,
+        "pretrain": {"hidden_dim": 16, "message_passing_steps": 2, "total_steps": 2,
                      "learning_rate": 0.01, "batch_size": 4, "hidden_dim_3d": 16,
                      "message_passing_steps_3d": 2},
         "arms": {"baseline": {"teacher_weight": 0.0, "conformer_pool_mode": "mean"},
@@ -63,7 +63,7 @@ def test_quantum_scaffold_arm(tmp_path):
     dataset = make_tiny_quantum_dataset(tmp_path)
     out_dir = tmp_path / "validate_scaffold"
     cfg = {
-        "pretrain": {"hidden_dim": 16, "message_passing_steps": 2, "epochs": 2,
+        "pretrain": {"hidden_dim": 16, "message_passing_steps": 2, "total_steps": 2,
                      "learning_rate": 0.01, "batch_size": 4, "hidden_dim_3d": 16,
                      "message_passing_steps_3d": 2},
         "arms": {"baseline": {"teacher_weight": 0.0, "conformer_pool_mode": "mean"},

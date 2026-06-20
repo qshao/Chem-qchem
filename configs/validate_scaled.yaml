@@ -11,11 +11,12 @@ pretrain:
   message_passing_steps: 3
   hidden_dim_3d: 64
   message_passing_steps_3d: 3
-  epochs: 200
+  total_steps: 20000
+  log_every: 100         # print train_loss (and val_loss) every N steps
   learning_rate: 0.001
   batch_size: 16
   resume: false          # set true to continue an interrupted run from its checkpoint
-  checkpoint_every: 10   # write a rolling {arm}_s{seed}.ckpt.pt every N epochs
+  checkpoint_every: 1000 # write a rolling {arm}_s{seed}.ckpt.pt every N steps
 
 arms:
   quantum_scaffold:

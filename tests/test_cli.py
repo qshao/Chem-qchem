@@ -857,7 +857,7 @@ def test_cli_contrastive_pretrain_then_export(tmp_path: Path):
             "--csv", str(csv_path),
             "--geometry", str(geo_path),
             "--limit", "4",
-            "--epochs", "20",
+            "--total-steps", "20",
             "--hidden-dim", "16",
             "--batch-size", "4",
             "--output", str(checkpoint),

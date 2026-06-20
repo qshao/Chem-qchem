@@ -28,8 +28,8 @@ def _fp(**overrides):
 
 
 def test_build_fingerprint_selects_only_known_fields():
-    fp = _build_fingerprint(dict(_fp(), epochs=999, extra="ignored"))
-    assert "epochs" not in fp
+    fp = _build_fingerprint(dict(_fp(), total_steps=999, extra="ignored"))
+    assert "total_steps" not in fp
     assert "extra" not in fp
     assert fp["hidden_dim"] == 16
 
@@ -45,18 +45,21 @@ def test_validate_fingerprint_raises_and_names_field():
 
 def test_atomic_save_and_load_roundtrip(tmp_path):
     path = tmp_path / "quantum_s0.ckpt.pt"
-    payload = {"version": PRETRAIN_CHECKPOINT_VERSION, "epoch": 3,
-               "config_fingerprint": _fp()}
+    payload = {
+        "version": PRETRAIN_CHECKPOINT_VERSION, "step": 3,
+        "cycle_order": [0, 1, 2, 3], "cycle_start": 0,
+        "config_fingerprint": _fp(),
+    }
     _atomic_save_checkpoint(path, payload)
     assert path.exists()
     assert not (tmp_path / "quantum_s0.ckpt.pt.tmp").exists()
     loaded = _load_checkpoint(path)
-    assert loaded["epoch"] == 3
+    assert loaded["step"] == 3
 
 
 def test_load_checkpoint_rejects_wrong_version(tmp_path):
     path = tmp_path / "bad.ckpt.pt"
-    torch.save({"version": 999, "epoch": 1}, path)
+    torch.save({"version": 999, "step": 1}, path)
     with pytest.raises(CheckpointMismatchError, match="version"):
         _load_checkpoint(path)
 
@@ -77,33 +80,34 @@ def _ckpt(tmp_path):
 
 
 def test_checkpoint_written_every_n_and_at_final(tmp_path):
+    # tiny dataset: 4 examples, batch_size=4 → 1 step per cycle
     dataset = make_tiny_quantum_dataset(tmp_path)
     path = _ckpt(tmp_path)
     contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=4, batch_size=4, seed=0,
+        dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=4, batch_size=4, seed=0,
         checkpoint_path=path, checkpoint_every=2,
     )
     assert path.exists()
     loaded = _load_checkpoint(path)
-    assert loaded["epoch"] == 4
+    assert loaded["step"] == 4
     assert len(loaded["loss_history"]) == 4
 
 
 def test_resume_continues_and_matches_uninterrupted_run(tmp_path):
-    # An interrupted 2+2 run must equal a single 4-epoch run (RNG + optimizer restored).
+    # An interrupted 2+2 step run must equal a single 4-step run (RNG + optimizer restored).
     ds_a = make_tiny_quantum_dataset(tmp_path / "a")
     full = contrastive_pretrain_on_dataset(
-        ds_a, hidden_dim=16, hidden_dim_3d=16, epochs=4, batch_size=4, seed=0,
+        ds_a, hidden_dim=16, hidden_dim_3d=16, total_steps=4, batch_size=4, seed=0,
     )
 
     ds_b = make_tiny_quantum_dataset(tmp_path / "b")
     path = tmp_path / "b" / "quantum_s0.ckpt.pt"
     contrastive_pretrain_on_dataset(
-        ds_b, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+        ds_b, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4, seed=0,
         checkpoint_path=path, checkpoint_every=2,
     )
     resumed = contrastive_pretrain_on_dataset(
-        ds_b, hidden_dim=16, hidden_dim_3d=16, epochs=4, batch_size=4, seed=0,
+        ds_b, hidden_dim=16, hidden_dim_3d=16, total_steps=4, batch_size=4, seed=0,
         checkpoint_path=path, checkpoint_every=2, resume=True,
     )
     assert len(resumed.loss_history) == 4
@@ -114,41 +118,42 @@ def test_resume_rejects_fingerprint_mismatch(tmp_path):
     dataset = make_tiny_quantum_dataset(tmp_path)
     path = _ckpt(tmp_path)
     contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+        dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4, seed=0,
         checkpoint_path=path, checkpoint_every=2,
     )
     with pytest.raises(CheckpointMismatchError, match="hidden_dim"):
         contrastive_pretrain_on_dataset(
-            dataset, hidden_dim=32, hidden_dim_3d=16, epochs=4, batch_size=4, seed=0,
+            dataset, hidden_dim=32, hidden_dim_3d=16, total_steps=4, batch_size=4, seed=0,
             checkpoint_path=path, checkpoint_every=2, resume=True,
         )
 
 
-def test_resume_allows_raising_epochs(tmp_path):
+def test_resume_allows_raising_total_steps(tmp_path):
     dataset = make_tiny_quantum_dataset(tmp_path)
     path = _ckpt(tmp_path)
     contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+        dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4, seed=0,
         checkpoint_path=path, checkpoint_every=2,
     )
     resumed = contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=5, batch_size=4, seed=0,
+        dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=5, batch_size=4, seed=0,
         checkpoint_path=path, checkpoint_every=2, resume=True,
     )
     assert len(resumed.loss_history) == 5
 
 
-def test_resume_past_completion_runs_no_epochs(tmp_path):
+def test_resume_past_completion_runs_no_steps(tmp_path):
     dataset = make_tiny_quantum_dataset(tmp_path)
     path = _ckpt(tmp_path)
     contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=4, batch_size=4, seed=0,
+        dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=4, batch_size=4, seed=0,
         checkpoint_path=path, checkpoint_every=2,
     )
-    resumed = contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=4, batch_size=4, seed=0,
-        checkpoint_path=path, checkpoint_every=2, resume=True,
-    )
+    with pytest.warns(UserWarning, match="no training will run"):
+        resumed = contrastive_pretrain_on_dataset(
+            dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=4, batch_size=4, seed=0,
+            checkpoint_path=path, checkpoint_every=2, resume=True,
+        )
     assert len(resumed.loss_history) == 4
     assert torch.isfinite(resumed.embeddings).all()
 
@@ -158,7 +163,7 @@ def test_resume_missing_checkpoint_warns_and_starts_fresh(tmp_path):
     path = _ckpt(tmp_path)  # does not exist yet
     with pytest.warns(UserWarning, match="no checkpoint"):
         result = contrastive_pretrain_on_dataset(
-            dataset, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+            dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4, seed=0,
             checkpoint_path=path, checkpoint_every=2, resume=True,
         )
     assert len(result.loss_history) == 2
@@ -169,11 +174,12 @@ def test_resume_false_ignores_existing_checkpoint(tmp_path):
     dataset = make_tiny_quantum_dataset(tmp_path)
     path = _ckpt(tmp_path)
     _atomic_save_checkpoint(path, {
-        "version": PRETRAIN_CHECKPOINT_VERSION, "epoch": 99,
+        "version": PRETRAIN_CHECKPOINT_VERSION, "step": 99,
+        "cycle_order": [0, 1, 2, 3], "cycle_start": 0,
         "config_fingerprint": {"hidden_dim": 999},
     })
     result = contrastive_pretrain_on_dataset(
-        dataset, hidden_dim=16, hidden_dim_3d=16, epochs=2, batch_size=4, seed=0,
+        dataset, hidden_dim=16, hidden_dim_3d=16, total_steps=2, batch_size=4, seed=0,
         checkpoint_path=path, checkpoint_every=2, resume=False,
     )
-    assert len(result.loss_history) == 2  # trained fresh, did not jump to epoch 99
+    assert len(result.loss_history) == 2  # trained fresh, did not jump to step 99

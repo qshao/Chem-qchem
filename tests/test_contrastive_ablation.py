@@ -34,7 +34,7 @@ def test_run_contrastive_ablation_returns_both_arms(tmp_path: Path):
     dataset = load_minimal_zinc_dataset(csv_path, geo_path, limit=8)
 
     report = run_contrastive_ablation(
-        dataset, hidden_dim=16, epochs=30, batch_size=4, contrastive_weight=1.0, seed=0
+        dataset, hidden_dim=16, total_steps=30, batch_size=4, contrastive_weight=1.0, seed=0
     )
 
     assert set(report) == {"supervised_only", "with_contrastive"}

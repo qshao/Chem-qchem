@@ -287,8 +287,9 @@ def _pretrain_kwargs(pretrain_cfg: dict, arm_overrides: dict, seed: int) -> dict
         num_message_passing_steps_3d=pretrain_cfg.get(
             "message_passing_steps_3d", pretrain_cfg["message_passing_steps"]
         ),
-        epochs=pretrain_cfg["epochs"],
+        total_steps=pretrain_cfg["total_steps"],
         batch_size=pretrain_cfg.get("batch_size", 16),
+        log_every=pretrain_cfg.get("log_every", 100),
         learning_rate=pretrain_cfg["learning_rate"],
         supervised_weight=pretrain_cfg.get("supervised_weight", 1.0),
         contrastive_weight=pretrain_cfg.get("contrastive_weight", 1.0),
@@ -337,8 +338,9 @@ def run_one_cell(
         try:
             result = contrastive_pretrain_on_dataset(
                 pretrain_ds,
+                val_dataset=MinimalQuantumDataset(examples=holdout_examples) if holdout_examples else None,
                 checkpoint_path=checkpoint_path,
-                checkpoint_every=int(pretrain_cfg.get("checkpoint_every", 10)),
+                checkpoint_every=int(pretrain_cfg.get("checkpoint_every", 1000)),
                 resume=resume,
                 **_pretrain_kwargs(pretrain_cfg, arm_overrides, seed),
             )
