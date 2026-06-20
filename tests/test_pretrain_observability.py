@@ -153,7 +153,7 @@ def test_metrics_jsonl_appends_on_resume(tmp_path):
             log_every=2, seed=0, checkpoint_path=ckpt, checkpoint_every=2, resume=True,
             metrics_path=metrics_path,
         )
+        second = len(metrics_path.read_text().splitlines())
     finally:
         torch.set_rng_state(rng_state)
-    second = len(metrics_path.read_text().splitlines())
     assert second > first  # appended, not truncated
