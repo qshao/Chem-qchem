@@ -421,6 +421,23 @@ def contrastive_pretrain_on_dataset(
     _modules = (model, encoder3d, teacher, proj_2d, proj_3d)
     train_start = time.perf_counter()
 
+    _resume_note = f" (resuming from step {start_step})" if do_resume else ""
+    _val_note = f", val={len(val_examples)}" if val_examples else ""
+    print(
+        f"Training start{_resume_note}: "
+        f"train={num_examples} molecules{_val_note} | "
+        f"steps={start_step}→{total_steps} | "
+        f"batch={batch_size} | "
+        f"log_every={log_every} | "
+        f"loss={contrastive_loss} | "
+        f"seed={seed}"
+    )
+    if checkpoint_path is not None:
+        print(f"  checkpoint → {checkpoint_path}  (every {checkpoint_every} steps)")
+    if metrics_path is not None:
+        print(f"  metrics    → {metrics_path}")
+    print()
+
     while step < total_steps:
         if cycle_start >= num_examples:
             cycle_start = 0

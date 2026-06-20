@@ -79,10 +79,15 @@ def load_compact_shard(path):
 
 def load_compact_shards(cache_dir, shard_ids) -> MinimalQuantumDataset:
     """Preload a set of compact shard caches into one in-memory dataset."""
+    shard_ids = list(shard_ids)
+    n_shards = len(shard_ids)
+    print(f"Loading {n_shards} shard(s) from {cache_dir} ...")
     examples = []
     skipped: list[str] = []
-    for subset_id in shard_ids:
+    for i, subset_id in enumerate(shard_ids, 1):
         exs, sk = load_compact_shard(_cache_path(Path(cache_dir), subset_id))
         examples.extend(exs)
         skipped.extend(sk)
+        print(f"  [{i}/{n_shards}] shard {subset_id:03d}: {len(exs)} molecules ({len(sk)} skipped)")
+    print(f"  Total: {len(examples)} molecules loaded ({len(skipped)} skipped across all shards)")
     return MinimalQuantumDataset(examples=examples, skipped_mol_ids=tuple(skipped))
