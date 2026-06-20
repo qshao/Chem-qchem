@@ -302,6 +302,9 @@ def contrastive_pretrain_on_dataset(
                     node_states_3d, conformer_batch.edge_index, conformer_embeddings
                 )
                 node_t, edge_t, graph_t, _ = assemble_conformer_targets(usable_examples)
+                node_t, edge_t, graph_t = normalize_targets(
+                    node_t, edge_t, graph_t, normalization
+                )
                 teacher_term = teacher_loss(
                     node_pred, edge_pred, graph_pred, node_t, edge_t, graph_t
                 )

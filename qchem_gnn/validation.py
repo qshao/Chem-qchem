@@ -88,8 +88,13 @@ def _pearson_mae(pred: torch.Tensor, target: torch.Tensor) -> dict:
     return {"r": r, "mae": mae}
 
 
-def evaluate_teacher(teacher, encoder3d, holdout_examples: list) -> dict:
-    """Score the trained teacher on held-out conformers vs DFT labels."""
+def evaluate_teacher(teacher, encoder3d, holdout_examples: list, normalization: dict) -> dict:
+    """Score the trained teacher on held-out conformers vs DFT labels.
+
+    The teacher trains in normalized target space, so predictions are
+    de-normalized back to physical units before scoring (Pearson r is
+    scale-invariant; MAE is reported in physical units).
+    """
     usable = [
         ex
         for ex in holdout_examples
@@ -114,6 +119,14 @@ def evaluate_teacher(teacher, encoder3d, holdout_examples: list) -> dict:
             batch.num_conformers,
         )
         node_pred, edge_pred, graph_pred = teacher(node_states, batch.edge_index, conf_emb)
+
+    # De-normalize predictions back to physical units (inverse of normalize_targets).
+    node_pred = node_pred * normalization["node_std"] + normalization["node_mean"]
+    edge_pred = edge_pred * normalization["edge_std"] + normalization["edge_mean"]
+    graph_pred = (
+        graph_pred * normalization["graph_std"].squeeze(0)
+        + normalization["graph_mean"].squeeze(0)
+    )
 
     node_t, edge_t, graph_t, _ = assemble_conformer_targets(usable)
     return {
@@ -358,7 +371,10 @@ def run_one_cell(
         if checkpoint_path.exists():
             checkpoint_path.unlink()
         try:
-            props = evaluate_teacher(result.teacher, result.encoder3d, holdout_examples)
+            props = evaluate_teacher(
+                result.teacher, result.encoder3d, holdout_examples,
+                result.target_normalization,
+            )
         except Exception as exc:  # noqa: BLE001
             props = {}
             intrinsic_row["status"] = "failed"

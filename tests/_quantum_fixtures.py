@@ -13,6 +13,7 @@ def write_synthetic_results_h5(
     n_atoms: int = 6,
     n_basis: int = 10,
     energies=(-115.0, -115.0005),
+    polar_base: float = 10.0,
     seed: int = 0,
 ) -> Path:
     """Write one molecule group mirroring the real results_044.h5 schema.
@@ -29,7 +30,7 @@ def write_synthetic_results_h5(
         for conf_idx, energy in enumerate(energies):
             conf = group.create_group(f"conf_{conf_idx}")
             conf.attrs["energy"] = float(energy)
-            conf.attrs["polarizability"] = (np.eye(3) * (10.0 + conf_idx)).astype(np.float64)
+            conf.attrs["polarizability"] = (np.eye(3) * (polar_base + conf_idx)).astype(np.float64)
             conf.create_dataset("chelpg", data=rng.standard_normal(n_atoms))
             wbi = rng.standard_normal((n_atoms, n_atoms))
             conf.create_dataset("wbi", data=(wbi + wbi.T) / 2.0)
