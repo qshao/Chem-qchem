@@ -410,6 +410,8 @@ def contrastive_pretrain_on_dataset(
         proj_3d.load_state_dict(payload["proj_3d_state_dict"])
         optimizer.load_state_dict(payload["optimizer_state_dict"])
         torch.set_rng_state(payload["rng_state"])
+        if device.type == "cuda" and "cuda_rng_state" in payload:
+            torch.cuda.set_rng_state_all(payload["cuda_rng_state"])
         loss_history = list(payload["loss_history"])
         contrastive_loss_history = list(payload["contrastive_loss_history"])
         start_step = int(payload["step"])
@@ -437,6 +439,7 @@ def contrastive_pretrain_on_dataset(
                 "proj_3d_state_dict": proj_3d.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "rng_state": torch.get_rng_state(),
+                **({"cuda_rng_state": torch.cuda.get_rng_state_all()} if device.type == "cuda" else {}),
                 "loss_history": list(loss_history),
                 "contrastive_loss_history": list(contrastive_loss_history),
                 "config_fingerprint": current_fingerprint,

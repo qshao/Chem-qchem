@@ -369,6 +369,7 @@ def run_one_cell(
         try:
             result = contrastive_pretrain_on_dataset(
                 pretrain_ds,
+                # holdout serves dual purpose: val loss during training + intrinsic teacher eval below
                 val_dataset=MinimalQuantumDataset(examples=holdout_examples) if holdout_examples else None,
                 checkpoint_path=checkpoint_path,
                 checkpoint_every=int(pretrain_cfg.get("checkpoint_every", 1000)),
