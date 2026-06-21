@@ -30,8 +30,8 @@ def compute_summary(records: list[dict]) -> dict:
         vals = [(r[key], r["step"]) for r in records if key in r]
         if not vals:
             return None
-        min_val = min(v for v, _ in vals)
-        min_step = next(s for v, s in vals if v == min_val)
+        min_idx = min(range(len(vals)), key=lambda i: vals[i][0])
+        min_val, min_step = vals[min_idx]
         return {
             "initial": vals[0][0],
             "final": vals[-1][0],
@@ -105,7 +105,7 @@ def format_summary(summary: dict) -> str:
             f"  {stat['min']:.4f} (step {stat['min_step']})"
         )
 
-    conv = summary["convergence_step"]
+    conv = summary.get("convergence_step")
     if conv is not None:
         lines.append(f"Convergence: step {conv} (last >1% improvement in train loss)")
     else:

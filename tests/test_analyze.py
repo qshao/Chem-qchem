@@ -45,6 +45,10 @@ def test_parse_empty_file_returns_empty_list(tmp_path):
     path.write_text("")
     assert parse_metrics_jsonl(path) == []
 
+def test_parse_file_not_found(tmp_path):
+    result = parse_metrics_jsonl(tmp_path / "does_not_exist.jsonl")
+    assert result == []
+
 def test_compute_summary_finds_min_step(tmp_path):
     records = [
         {**_BASE_RECORD, "step": 10, "train_loss": 2.0, "wall_seconds": 0.1},
