@@ -147,6 +147,17 @@ def build_parser() -> argparse.ArgumentParser:
     preprocess.add_argument("--cache-dir", required=True, help="Output directory for compact shard caches")
     preprocess.add_argument("--overwrite", action="store_true", default=False, help="Re-extract even if a valid cache exists")
 
+    analyze_cmd = subparsers.add_parser(
+        "analyze", help="Summarize or tail a metrics.jsonl from contrastive pretraining"
+    )
+    analyze_cmd.add_argument("metrics_path", help="Path to metrics.jsonl file")
+    analyze_cmd.add_argument(
+        "--follow", "-f",
+        action="store_true",
+        default=False,
+        help="Poll the file and print one line per new record (Ctrl-C to stop)",
+    )
+
     return parser
 
 
@@ -832,6 +843,44 @@ def run_preprocess(args) -> int:
     return 0
 
 
+def run_analyze(args) -> int:
+    import sys
+    import time
+    from .analyze import parse_metrics_jsonl, compute_summary, format_summary, format_record
+
+    path = Path(args.metrics_path)
+
+    if not args.follow:
+        records = parse_metrics_jsonl(path)
+        if not records:
+            print(f"No records found in {path}", file=sys.stderr)
+            return 1
+        print(format_summary(compute_summary(records)))
+        return 0
+
+    # Follow mode: poll for new lines, print one formatted line per new record.
+    offset = 0
+    try:
+        while True:
+            if path.exists():
+                with open(path) as f:
+                    f.seek(offset)
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            import json as _json
+                            record = _json.loads(line)
+                            print(format_record(record), flush=True)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    offset = f.tell()
+            time.sleep(5)
+    except KeyboardInterrupt:
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     raw_args = parser.parse_args(argv)
@@ -839,6 +888,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_adapt(raw_args)
     if raw_args.command == "preprocess":
         return run_preprocess(raw_args)
+    if raw_args.command == "analyze":
+        return run_analyze(raw_args)
     args = _resolved_namespace_from_args(raw_args)
 
     if args.command == "train":

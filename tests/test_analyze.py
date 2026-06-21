@@ -117,3 +117,28 @@ def test_format_record_with_val():
     line = format_record(record)
     assert "50/100" in line
     assert "val" in line
+
+import subprocess
+import sys
+
+def test_cli_analyze_summary(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    records = [
+        {**_BASE_RECORD, "step": 10, "train_loss": 2.0, "wall_seconds": 60.0},
+        {**_BASE_RECORD, "step": 20, "train_loss": 1.5, "wall_seconds": 120.0},
+    ]
+    _write_jsonl(path, records)
+    result = subprocess.run(
+        [sys.executable, "-m", "qchem_gnn", "analyze", str(path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0
+    assert "Steps:" in result.stdout
+    assert "train total" in result.stdout
+
+def test_cli_analyze_missing_file_returns_nonzero(tmp_path):
+    result = subprocess.run(
+        [sys.executable, "-m", "qchem_gnn", "analyze", str(tmp_path / "missing.jsonl")],
+        capture_output=True, text=True,
+    )
+    assert result.returncode != 0
