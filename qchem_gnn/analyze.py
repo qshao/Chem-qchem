@@ -27,7 +27,7 @@ def compute_summary(records: list[dict]) -> dict:
         return {}
 
     def _stat(key: str) -> dict | None:
-        vals = [(r[key], r["step"]) for r in records if key in r]
+        vals = [(r[key], r["step"]) for r in records if key in r and "step" in r]
         if not vals:
             return None
         min_idx = min(range(len(vals)), key=lambda i: vals[i][0])
