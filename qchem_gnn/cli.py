@@ -844,6 +844,7 @@ def run_preprocess(args) -> int:
 
 
 def run_analyze(args) -> int:
+    import json
     import sys
     import time
     from .analyze import parse_metrics_jsonl, compute_summary, format_summary, format_record
@@ -870,8 +871,7 @@ def run_analyze(args) -> int:
                         if not line:
                             continue
                         try:
-                            import json as _json
-                            record = _json.loads(line)
+                            record = json.loads(line)
                             print(format_record(record), flush=True)
                         except Exception:  # noqa: BLE001
                             pass

@@ -1,5 +1,7 @@
 from __future__ import annotations
 import json
+import subprocess
+import sys
 from pathlib import Path
 import pytest
 from qchem_gnn.analyze import (
@@ -117,9 +119,6 @@ def test_format_record_with_val():
     line = format_record(record)
     assert "50/100" in line
     assert "val" in line
-
-import subprocess
-import sys
 
 def test_cli_analyze_summary(tmp_path):
     path = tmp_path / "metrics.jsonl"
